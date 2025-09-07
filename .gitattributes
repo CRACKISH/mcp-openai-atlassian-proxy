@@ -1,0 +1,25 @@
+# Enforce consistent line endings in repo (LF). Working copies on Windows can still use CRLF if core.autocrlf is true.
+* text=auto eol=lf
+
+# Explicit text files
+*.ts text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sh text eol=lf
+
+# Windows specific scripts can keep CRLF if added later:
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary (no end-of-line normalization)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.svg binary
