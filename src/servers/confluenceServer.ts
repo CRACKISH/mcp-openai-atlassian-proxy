@@ -16,18 +16,30 @@ export async function startConfluenceShim(options: ConfluenceShimOptions) {
 	const upstream = new UpstreamClient({ remoteUrl: options.upstreamUrl });
 	await upstream.connectIfNeeded();
 
-	const confSearchTool = upstream.findToolName(
-		n => (n.includes('confluence') || n.includes('conf')) && n.includes('search')
-	);
-	const confGetTool = upstream.findToolName(
-		n => (n.includes('confluence') || n.includes('conf')) && (n.includes('get') || n.includes('page'))
-	);
+	const confSearchTool = findConfSearchTool(upstream);
+	const confGetTool = findConfGetTool(upstream);
 
 	const mcp = new MCPServer(
 		{ name: 'confluence-shim', version: '0.1.0' },
 		{ capabilities: { tools: {} } }
 	);
 
+	registerListTools(mcp);
+	registerCallHandler(mcp, upstream, confSearchTool, confGetTool);
+
+	startHttpServer(options, mcp, confSearchTool, confGetTool);
+}
+
+// --- discovery helpers ----------------------------------------------------
+function findConfSearchTool(upstream: UpstreamClient) {
+	return upstream.findToolName(n => (n.includes('confluence') || n.includes('conf')) && n.includes('search'));
+}
+function findConfGetTool(upstream: UpstreamClient) {
+	return upstream.findToolName(n => (n.includes('confluence') || n.includes('conf')) && (n.includes('get') || n.includes('page')));
+}
+
+// --- MCP handlers ---------------------------------------------------------
+function registerListTools(mcp: MCPServer) {
 	mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
 		tools: [
 			{
@@ -35,10 +47,7 @@ export async function startConfluenceShim(options: ConfluenceShimOptions) {
 				description: 'Search Confluence pages; returns { objectIds: ["confluence:ID"] }',
 				inputSchema: {
 					type: 'object',
-					properties: {
-						query: { type: 'string' },
-						topK: { type: 'integer', minimum: 1, maximum: 100, default: 20 }
-					},
+					properties: { query: { type: 'string' }, topK: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
 					required: ['query']
 				}
 			},
@@ -47,66 +56,89 @@ export async function startConfluenceShim(options: ConfluenceShimOptions) {
 				description: 'Fetch Confluence pages by id',
 				inputSchema: {
 					type: 'object',
-					properties: {
-						objectIds: { type: 'array', items: { type: 'string' }, minItems: 1 }
-					},
+					properties: { objectIds: { type: 'array', items: { type: 'string' }, minItems: 1 } },
 					required: ['objectIds']
 				}
 			}
 		]
 	}));
+}
 
+function registerCallHandler(
+	mcp: MCPServer,
+	upstream: UpstreamClient,
+	confSearchTool: string | null,
+	confGetTool: string | null
+) {
 	mcp.setRequestHandler(CallToolRequestSchema, async rawReq => {
-		if (!upstream.isConnected()) {
-			return { content: [{ type: 'text', text: 'Upstream not connected' }] } as { content: ContentPart[] };
-		}
-		interface ToolCallLike { params?: { name?: string; arguments?: ToolArguments }; name?: string; arguments?: ToolArguments }
-		const req = rawReq as unknown as ToolCallLike;
-		const name = req.params?.name || req.name || '';
-		const args: ToolArguments = req.params?.arguments || req.arguments || {};
+		if (!upstream.isConnected()) return textContent('Upstream not connected');
+		const { name, args } = normalizeToolCall(rawReq);
 		try {
-			if (name === 'search') {
-				if (!confSearchTool) {
-					return { content: [{ type: 'text', text: 'No upstream Confluence search tool' }] };
-				}
-				const searchResponse = await upstream.callTool(confSearchTool, {
-					query: args.query as JsonValue,
-					cql: args.query as JsonValue,
-					limit: (args.topK as number) || 20
-				});
-				const ids = extractConfluenceIds(searchResponse.content);
-				return { content: [{ type: 'json', data: { objectIds: ids.map(id => `confluence:${id}`) } }] };
-			}
-			if (name === 'fetch') {
-				if (!confGetTool) {
-					return { content: [{ type: 'text', text: 'No upstream Confluence get tool' }] };
-				}
-				const objectIds: string[] = (() => {
-					const maybe = args.objectIds as JsonValue;
-					return Array.isArray(maybe) && maybe.every(v => typeof v === 'string') ? (maybe as string[]) : [];
-				})();
-				interface Resource { objectId: string; type: string; contentType: string; content: JsonValue | null }
-				const resources: Resource[] = [];
-				for (const rawObjectId of objectIds) {
-					const id = rawObjectId.replace(/^confluence:/i, '');
-					const pageResponse = await upstream.callTool(confGetTool, { id, pageId: id });
-					const parsed = firstJson(pageResponse.content || []);
-					resources.push({
-						objectId: `confluence:${id}`,
-						type: 'confluence_page',
-						contentType: 'application/json',
-						content: parsed ?? null
-					});
-				}
-				return { content: [{ type: 'json', data: { resources } }] };
-			}
-			return { content: [{ type: 'text', text: `Unknown tool: ${name}` }] };
+			if (name === 'search') return handleSearch(upstream, confSearchTool, args);
+			if (name === 'fetch') return handleFetch(upstream, confGetTool, args);
+			return textContent(`Unknown tool: ${name}`);
 		} catch (e) {
 			const message = (e as { message?: string })?.message || String(e);
-			return { content: [{ type: 'text', text: `confluence-shim error: ${message}` }] };
+			return textContent(`confluence-shim error: ${message}`);
 		}
 	});
+}
 
+// --- tool implementations -------------------------------------------------
+function normalizeToolCall(rawReq: object): { name: string; args: ToolArguments } {
+	interface ToolCallLike { params?: { name?: string; arguments?: ToolArguments }; name?: string; arguments?: ToolArguments }
+	const req = rawReq as ToolCallLike;
+	return { name: req.params?.name || req.name || '', args: req.params?.arguments || req.arguments || {} };
+}
+
+function assertToolAvailable(toolName: string | null, label: string) {
+	if (!toolName) throw new Error(`No upstream Confluence ${label} tool`);
+}
+
+async function handleSearch(
+	upstream: UpstreamClient,
+	confSearchTool: string | null,
+	args: ToolArguments
+) {
+	assertToolAvailable(confSearchTool, 'search');
+	const searchResponse = await upstream.callTool(confSearchTool!, {
+		query: args.query as JsonValue,
+		cql: args.query as JsonValue,
+		limit: (args.topK as number) || 20
+	});
+	const ids = extractConfluenceIds(searchResponse.content);
+	return { content: [{ type: 'json', data: { objectIds: ids.map(id => `confluence:${id}`) } }] };
+}
+
+async function handleFetch(
+	upstream: UpstreamClient,
+	confGetTool: string | null,
+	args: ToolArguments
+) {
+	assertToolAvailable(confGetTool, 'get');
+	const objectIds = parseObjectIds(args.objectIds as JsonValue);
+	const resources = await Promise.all(objectIds.map(id => fetchPage(upstream, confGetTool!, id)));
+	return { content: [{ type: 'json', data: { resources } }] };
+}
+
+function parseObjectIds(maybe: JsonValue): string[] {
+	return Array.isArray(maybe) && maybe.every(v => typeof v === 'string') ? (maybe as string[]) : [];
+}
+
+async function fetchPage(upstream: UpstreamClient, tool: string, rawObjectId: string) {
+	const id = rawObjectId.replace(/^confluence:/i, '');
+	const pageResponse = await upstream.callTool(tool, { id, pageId: id });
+	const parsed = firstJson(pageResponse.content || []);
+	return { objectId: `confluence:${id}`, type: 'confluence_page', contentType: 'application/json', content: parsed ?? null };
+}
+
+// --- http server ----------------------------------------------------------
+function startHttpServer(
+	options: ConfluenceShimOptions,
+	mcp: MCPServer,
+	confSearchTool: string | null,
+	confGetTool: string | null
+) {
 	const app = express();
 	app.use(cors());
 	app.get('/healthz', (_req, res) => {
@@ -120,4 +152,7 @@ export async function startConfluenceShim(options: ConfluenceShimOptions) {
 		console.log(`[confluence-shim] listening on :${options.port} -> upstream ${options.upstreamUrl}`);
 	});
 }
+
+// --- small util -----------------------------------------------------------
+function textContent(text: string): { content: ContentPart[] } { return { content: [{ type: 'text', text }] } as { content: ContentPart[] }; }
 

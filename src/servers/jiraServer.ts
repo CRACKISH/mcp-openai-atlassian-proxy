@@ -17,18 +17,30 @@ export async function startJiraShim(options: JiraShimOptions) {
 	const upstream = new UpstreamClient({ remoteUrl: options.upstreamUrl });
 	await upstream.connectIfNeeded();
 
-	const jiraSearchTool = upstream.findToolName(
-		n => n.includes('jira') && (n.includes('search') || n.includes('jql'))
-	);
-	const jiraGetTool = upstream.findToolName(
-		n => n.includes('jira') && (n.includes('get') || n.includes('issue'))
-	);
+	const jiraSearchTool = findJiraSearchTool(upstream);
+	const jiraGetTool = findJiraGetTool(upstream);
 
 	const mcp = new MCPServer(
 		{ name: 'jira-shim', version: '0.1.0' },
 		{ capabilities: { tools: {} } }
 	);
 
+	registerListTools(mcp);
+	registerCallHandler(mcp, upstream, jiraSearchTool, jiraGetTool);
+
+	startHttpServer(options, mcp, jiraSearchTool, jiraGetTool);
+}
+
+// --- discovery helpers ----------------------------------------------------
+function findJiraSearchTool(upstream: UpstreamClient): string | null {
+	return upstream.findToolName(n => n.includes('jira') && (n.includes('search') || n.includes('jql')));
+}
+function findJiraGetTool(upstream: UpstreamClient): string | null {
+	return upstream.findToolName(n => n.includes('jira') && (n.includes('get') || n.includes('issue')));
+}
+
+// --- MCP handlers ---------------------------------------------------------
+function registerListTools(mcp: MCPServer) {
 	mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
 		tools: [
 			{
@@ -36,10 +48,7 @@ export async function startJiraShim(options: JiraShimOptions) {
 				description: 'Search Jira issues; returns { objectIds: ["jira:KEY"] }',
 				inputSchema: {
 					type: 'object',
-					properties: {
-						query: { type: 'string' },
-						topK: { type: 'integer', minimum: 1, maximum: 100, default: 20 }
-					},
+					properties: { query: { type: 'string' }, topK: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
 					required: ['query']
 				}
 			},
@@ -48,66 +57,89 @@ export async function startJiraShim(options: JiraShimOptions) {
 				description: 'Fetch Jira issues by keys returned from search()',
 				inputSchema: {
 					type: 'object',
-					properties: {
-						objectIds: { type: 'array', items: { type: 'string' }, minItems: 1 }
-					},
+					properties: { objectIds: { type: 'array', items: { type: 'string' }, minItems: 1 } },
 					required: ['objectIds']
 				}
 			}
 		]
 	}));
+}
 
+function registerCallHandler(
+	mcp: MCPServer,
+	upstream: UpstreamClient,
+	jiraSearchTool: string | null,
+	jiraGetTool: string | null
+) {
 	mcp.setRequestHandler(CallToolRequestSchema, async rawReq => {
-		if (!upstream.isConnected()) {
-			return { content: [{ type: 'text', text: 'Upstream not connected' }] } as { content: ContentPart[] };
-		}
-		interface ToolCallLike { params?: { name?: string; arguments?: ToolArguments }; name?: string; arguments?: ToolArguments }
-		const req = rawReq as unknown as ToolCallLike;
-		const name = req.params?.name || req.name || '';
-		const args: ToolArguments = req.params?.arguments || req.arguments || {};
+		if (!upstream.isConnected()) return textContent('Upstream not connected');
+		const { name, args } = normalizeToolCall(rawReq);
 		try {
-			if (name === 'search') {
-				if (!jiraSearchTool) {
-					return { content: [{ type: 'text', text: 'No upstream Jira search tool' }] };
-				}
-				const searchResponse = await upstream.callTool(jiraSearchTool, {
-					query: args.query as JsonValue,
-					jql: args.query as JsonValue,
-					maxResults: (args.topK as number) || 20
-				});
-				const ids = extractJiraKeys((searchResponse as ToolResponse).content);
-				return { content: [{ type: 'json', data: { objectIds: ids.map(k => `jira:${k}`) } }] };
-			}
-			if (name === 'fetch') {
-				if (!jiraGetTool) {
-					return { content: [{ type: 'text', text: 'No upstream Jira get tool' }] };
-				}
-				const objectIds = ((): string[] => {
-					const maybe = (args.objectIds as JsonValue);
-					return Array.isArray(maybe) && maybe.every(v => typeof v === 'string') ? (maybe as string[]) : [];
-				})();
-				interface Resource { objectId: string; type: string; contentType: string; content: JsonValue | null }
-				const resources: Resource[] = [];
-				for (const rawObjectId of objectIds) {
-					const key = rawObjectId.replace(/^jira:/i, '');
-					const issueResponse = await upstream.callTool(jiraGetTool, { key, issueKey: key, idOrKey: key });
-					const parsed = firstJson(issueResponse.content || []);
-					resources.push({
-						objectId: `jira:${key}`,
-						type: 'jira_issue',
-						contentType: 'application/json',
-						content: parsed ?? null
-					});
-				}
-				return { content: [{ type: 'json', data: { resources } }] };
-			}
-			return { content: [{ type: 'text', text: `Unknown tool: ${name}` }] };
+			if (name === 'search') return handleSearch(upstream, jiraSearchTool, args);
+			if (name === 'fetch') return handleFetch(upstream, jiraGetTool, args);
+			return textContent(`Unknown tool: ${name}`);
 		} catch (e) {
 			const message = (e as { message?: string })?.message || String(e);
-			return { content: [{ type: 'text', text: `jira-shim error: ${message}` }] };
+			return textContent(`jira-shim error: ${message}`);
 		}
 	});
+}
 
+// --- tool implementations -------------------------------------------------
+function normalizeToolCall(rawReq: object): { name: string; args: ToolArguments } {
+	interface ToolCallLike { params?: { name?: string; arguments?: ToolArguments }; name?: string; arguments?: ToolArguments }
+	const req = rawReq as ToolCallLike;
+	return { name: req.params?.name || req.name || '', args: req.params?.arguments || req.arguments || {} };
+}
+
+function assertToolAvailable(toolName: string | null, label: string) {
+	if (!toolName) throw new Error(`No upstream Jira ${label} tool`);
+}
+
+async function handleSearch(
+	upstream: UpstreamClient,
+	jiraSearchTool: string | null,
+	args: ToolArguments
+) {
+	assertToolAvailable(jiraSearchTool, 'search');
+	const searchResponse = await upstream.callTool(jiraSearchTool!, {
+		query: args.query as JsonValue,
+		jql: args.query as JsonValue,
+		maxResults: (args.topK as number) || 20
+	});
+	const ids = extractJiraKeys((searchResponse as ToolResponse).content);
+	return { content: [{ type: 'json', data: { objectIds: ids.map(k => `jira:${k}`) } }] };
+}
+
+async function handleFetch(
+	upstream: UpstreamClient,
+	jiraGetTool: string | null,
+	args: ToolArguments
+) {
+	assertToolAvailable(jiraGetTool, 'get');
+	const objectIds = parseObjectIds(args.objectIds as JsonValue);
+	const resources = await Promise.all(objectIds.map(id => fetchJiraIssue(upstream, jiraGetTool!, id)));
+	return { content: [{ type: 'json', data: { resources } }] };
+}
+
+function parseObjectIds(maybe: JsonValue): string[] {
+	return Array.isArray(maybe) && maybe.every(v => typeof v === 'string') ? (maybe as string[]) : [];
+}
+
+async function fetchJiraIssue(upstream: UpstreamClient, tool: string, rawObjectId: string) {
+	const key = rawObjectId.replace(/^jira:/i, '');
+	const issueResponse = await upstream.callTool(tool, { key, issueKey: key, idOrKey: key });
+	const parsed = firstJson(issueResponse.content || []);
+	return { objectId: `jira:${key}`, type: 'jira_issue', contentType: 'application/json', content: parsed ?? null };
+}
+
+// --- http server ----------------------------------------------------------
+function startHttpServer(
+	options: JiraShimOptions,
+	mcp: MCPServer,
+	jiraSearchTool: string | null,
+	jiraGetTool: string | null
+) {
 	const app = express();
 	app.use(cors());
 	app.get('/healthz', (_req, res) => {
@@ -121,3 +153,6 @@ export async function startJiraShim(options: JiraShimOptions) {
 		console.log(`[jira-shim] listening on :${options.port} -> upstream ${options.upstreamUrl}`);
 	});
 }
+
+// --- small util -----------------------------------------------------------
+function textContent(text: string): { content: ContentPart[] } { return { content: [{ type: 'text', text }] } as { content: ContentPart[] }; }

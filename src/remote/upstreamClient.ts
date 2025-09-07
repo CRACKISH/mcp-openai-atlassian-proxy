@@ -97,45 +97,64 @@ private async waitForEndpoint(ms: number): Promise<void> { if (this.messageTempl
 			const chunk = await reader.read();
 			if (chunk.done) return;
 			buffer += decoder.decode(chunk.value, { stream: true });
-			// normalize CRLF to LF to simplify parsing
-			buffer = buffer.replace(/\r/g, '');
-			let idx: number;
-			while ((idx = buffer.indexOf('\n\n')) !== -1) {
-				const rawEvent = buffer.slice(0, idx);
-				buffer = buffer.slice(idx + 2);
-				const lines = rawEvent.split('\n');
-				let eventName: string | null = null;
-				const dataLines: string[] = [];
-				for (const l of lines) {
-					if (l.startsWith('event:')) eventName = l.slice(6).trim();
-					else if (l.startsWith('data:')) dataLines.push(l.slice(5).trimStart());
-				}
-				if (!dataLines.length) continue;
-				const payload = dataLines.join('\n');
-				if (!payload) continue;
-				if (eventName === 'endpoint') {
-					let path = payload.trim();
-					if (!path.startsWith('/')) path = '/' + path;
-					const m = path.match(/session_id=([A-Za-z0-9_-]+)/);
-					if (m) {
-						this.sessionId = m[1];
-						const templPath = path.replace(this.sessionId, '{id}');
-						this.messageTemplate = this.base + templPath;
-					}
-					continue;
-				}
-				try {
-					const json = JSON.parse(payload) as JsonObject;
-					const idValue = (json as { id?: number | string }).id;
-					if (idValue !== undefined) {
-						const key = String(idValue);
-						const resolver = this.pending[key];
-						if (resolver) { delete this.pending[key]; resolver(json); }
-					}
-				} catch (e) {
-					this.log('[upstream] sse parse error', (e as Error).message);
-				}
+			buffer = buffer.replace(/\r/g, ''); // normalize CRLF
+			buffer = await this.extractAndProcessEvents(buffer);
+		}
+	}
+
+	/**
+	 * Pull complete SSE events from the buffer and process them. Returns any leftover (partial) buffer.
+	 */
+	private async extractAndProcessEvents(buffer: string): Promise<string> {
+		let idx: number;
+		while ((idx = buffer.indexOf('\n\n')) !== -1) {
+			const rawEvent = buffer.slice(0, idx);
+			buffer = buffer.slice(idx + 2);
+			this.handleRawSseEvent(rawEvent);
+		}
+		return buffer;
+	}
+
+	/** Parse a raw SSE event block (without trailing blank line). */
+	private handleRawSseEvent(raw: string): void {
+		const lines = raw.split('\n');
+		let eventName: string | null = null;
+		const dataLines: string[] = [];
+		for (const l of lines) {
+			if (l.startsWith('event:')) eventName = l.slice(6).trim();
+			else if (l.startsWith('data:')) dataLines.push(l.slice(5).trimStart());
+		}
+		if (!dataLines.length) return;
+		const payload = dataLines.join('\n');
+		if (!payload) return;
+		if (eventName === 'endpoint') { this.handleEndpointEvent(payload); return; }
+		this.dispatchJsonRpc(payload);
+	}
+
+	/** Extract session + template from endpoint notification. */
+	private handleEndpointEvent(payload: string): void {
+		let path = payload.trim();
+		if (!path.startsWith('/')) path = '/' + path;
+		const m = path.match(/session_id=([A-Za-z0-9_-]+)/);
+		if (m) {
+			this.sessionId = m[1];
+			const templPath = path.replace(this.sessionId, '{id}');
+			this.messageTemplate = this.base + templPath;
+		}
+	}
+
+	/** Attempt to parse JSON-RPC response and resolve matching pending promise. */
+	private dispatchJsonRpc(payload: string): void {
+		try {
+			const json = JSON.parse(payload) as JsonObject;
+			const idValue = (json as { id?: number | string }).id;
+			if (idValue !== undefined) {
+				const key = String(idValue);
+				const resolver = this.pending[key];
+				if (resolver) { delete this.pending[key]; resolver(json); }
 			}
+		} catch (e) {
+			this.log('[upstream] sse parse error', (e as Error).message);
 		}
 	}
 
