@@ -4,6 +4,8 @@ import { Server as MCPServer } from '@modelcontextprotocol/sdk/server/index.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { UpstreamClient } from '../remote/upstreamClient.js';
+import { extractConfluenceIds, firstJson } from '../utils/content.js';
+import { ContentPart, ToolArguments, JsonValue } from '../types/json.js';
 
 export interface ConfluenceShimOptions {
 	port: number;
@@ -12,12 +14,12 @@ export interface ConfluenceShimOptions {
 
 export async function startConfluenceShim(options: ConfluenceShimOptions) {
 	const upstream = new UpstreamClient({ remoteUrl: options.upstreamUrl });
-	await upstream.ensureConnected();
+	await upstream.connectIfNeeded();
 
-	const confSearchTool = upstream.findToolBy(
+	const confSearchTool = upstream.findToolName(
 		n => (n.includes('confluence') || n.includes('conf')) && n.includes('search')
 	);
-	const confGetTool = upstream.findToolBy(
+	const confGetTool = upstream.findToolName(
 		n => (n.includes('confluence') || n.includes('conf')) && (n.includes('get') || n.includes('page'))
 	);
 
@@ -54,35 +56,41 @@ export async function startConfluenceShim(options: ConfluenceShimOptions) {
 		]
 	}));
 
-	mcp.setRequestHandler(CallToolRequestSchema, async req => {
+	mcp.setRequestHandler(CallToolRequestSchema, async rawReq => {
 		if (!upstream.isConnected()) {
-			return { content: [{ type: 'text', text: 'Upstream not connected' }] } as any;
+			return { content: [{ type: 'text', text: 'Upstream not connected' }] } as { content: ContentPart[] };
 		}
-		const name = (req as unknown as { params?: { name?: string; arguments?: Record<string, unknown> }; name?: string }).params?.name || (req as any).name;
-		const args = (req as unknown as { params?: { arguments?: Record<string, unknown> }; arguments?: Record<string, unknown> }).params?.arguments || (req as any).arguments || {};
+		interface ToolCallLike { params?: { name?: string; arguments?: ToolArguments }; name?: string; arguments?: ToolArguments }
+		const req = rawReq as unknown as ToolCallLike;
+		const name = req.params?.name || req.name || '';
+		const args: ToolArguments = req.params?.arguments || req.arguments || {};
 		try {
 			if (name === 'search') {
 				if (!confSearchTool) {
-					return { content: [{ type: 'text', text: 'No upstream Confluence search tool' }] } as any;
+					return { content: [{ type: 'text', text: 'No upstream Confluence search tool' }] };
 				}
-				const r = await upstream.callTool(confSearchTool, {
-					query: args.query,
-					cql: args.query,
-					limit: args.topK || 20
+				const searchResponse = await upstream.callTool(confSearchTool, {
+					query: args.query as JsonValue,
+					cql: args.query as JsonValue,
+					limit: (args.topK as number) || 20
 				});
-				const ids = extractPageIds((r as { content?: unknown[] })?.content || []);
-				return { content: [{ type: 'json', data: { objectIds: ids.map(id => `confluence:${id}`) } }] } as any;
+				const ids = extractConfluenceIds(searchResponse.content);
+				return { content: [{ type: 'json', data: { objectIds: ids.map(id => `confluence:${id}`) } }] };
 			}
 			if (name === 'fetch') {
 				if (!confGetTool) {
-					return { content: [{ type: 'text', text: 'No upstream Confluence get tool' }] } as any;
+					return { content: [{ type: 'text', text: 'No upstream Confluence get tool' }] };
 				}
-				const objectIds: string[] = Array.isArray(args.objectIds) ? args.objectIds : [];
-				const resources = [] as any[];
-				for (const oid of objectIds) {
-					const id = oid.replace(/^confluence:/i, '');
-					const r = await upstream.callTool(confGetTool, { id, pageId: id });
-					const parsed = firstJsonContent((r as { content?: unknown[] })?.content || []);
+				const objectIds: string[] = (() => {
+					const maybe = args.objectIds as JsonValue;
+					return Array.isArray(maybe) && maybe.every(v => typeof v === 'string') ? (maybe as string[]) : [];
+				})();
+				interface Resource { objectId: string; type: string; contentType: string; content: JsonValue | null }
+				const resources: Resource[] = [];
+				for (const rawObjectId of objectIds) {
+					const id = rawObjectId.replace(/^confluence:/i, '');
+					const pageResponse = await upstream.callTool(confGetTool, { id, pageId: id });
+					const parsed = firstJson(pageResponse.content || []);
 					resources.push({
 						objectId: `confluence:${id}`,
 						type: 'confluence_page',
@@ -90,11 +98,12 @@ export async function startConfluenceShim(options: ConfluenceShimOptions) {
 						content: parsed ?? null
 					});
 				}
-				return { content: [{ type: 'json', data: { resources } }] } as any;
+				return { content: [{ type: 'json', data: { resources } }] };
 			}
-			return { content: [{ type: 'text', text: `Unknown tool: ${name}` }] } as any;
-		} catch (e: any) {
-			return { content: [{ type: 'text', text: `confluence-shim error: ${e?.message || e}` }] } as any;
+			return { content: [{ type: 'text', text: `Unknown tool: ${name}` }] };
+		} catch (e) {
+			const message = (e as { message?: string })?.message || String(e);
+			return { content: [{ type: 'text', text: `confluence-shim error: ${message}` }] };
 		}
 	});
 
@@ -112,29 +121,3 @@ export async function startConfluenceShim(options: ConfluenceShimOptions) {
 	});
 }
 
-function extractPageIds(content: any[]): string[] {
-	const ids = new Set<string>();
-	for (const c of content) {
-		if (c.type === 'json' && c.data) collect(c.data);
-	}
-	return [...ids];
-	function collect(x: any) {
-		if (!x) return;
-		if (Array.isArray(x)) return x.forEach(collect);
-		if (typeof x === 'object') {
-			if (typeof x.id === 'string' || typeof x.id === 'number') ids.add(String(x.id));
-			for (const v of Object.values(x)) collect(v);
-		}
-	}
-}
-
-function firstJsonContent(content: any[]): any | null {
-	for (const c of content) if (c.type === 'json') return c.data ?? null;
-	for (const c of content)
-		if (c.type === 'text' && typeof c.text === 'string') {
-			try {
-				return JSON.parse(c.text);
-			} catch {}
-		}
-	return null;
-}
