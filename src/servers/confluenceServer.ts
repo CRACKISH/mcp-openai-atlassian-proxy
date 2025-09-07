@@ -3,9 +3,9 @@ import cors from 'cors';
 import { Server as MCPServer } from '@modelcontextprotocol/sdk/server/index.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { UpstreamClient } from '../remote/upstreamClient.js';
-import { extractConfluenceIds, firstJson } from '../utils/content.js';
-import { ContentPart, ToolArguments, JsonValue } from '../types/json.js';
+import { UpstreamClient } from '../remote/index.js';
+import { extractConfluenceIds, firstJson } from '../utils/index.js';
+import { ContentPart, ToolArguments, JsonValue } from '../types/index.js';
 
 export interface ConfluenceShimOptions {
 	port: number;

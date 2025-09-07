@@ -3,9 +3,9 @@ import cors from 'cors';
 import { Server as MCPServer } from '@modelcontextprotocol/sdk/server/index.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { UpstreamClient } from '../remote/upstreamClient.js';
-import { extractJiraKeys, firstJson } from '../utils/content.js';
-import { ContentPart, ToolArguments, ToolResponse, JsonValue } from '../types/json.js';
+import { UpstreamClient } from '../remote/index.js';
+import { extractJiraKeys, firstJson } from '../utils/index.js';
+import { ContentPart, ToolArguments, ToolResponse, JsonValue } from '../types/index.js';
 
 export interface JiraShimOptions {
 	port: number;

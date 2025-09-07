@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import 'dotenv/config';
-import { startJiraShim } from './servers/jiraServer.js';
-import { startConfluenceShim } from './servers/confluenceServer.js';
+import { startJiraShim, startConfluenceShim } from './servers/index.js';
 
 export interface LaunchConfig {
 	upstreamUrl: string; // full /sse endpoint of original Atlassian MCP

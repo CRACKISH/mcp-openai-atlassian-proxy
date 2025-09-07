@@ -1,4 +1,4 @@
-import { ToolResponse, ToolArguments, JsonObject, JsonValue } from '../types/json.js';
+import { ToolResponse, ToolArguments, JsonObject, JsonValue } from '../types/index.js';
 
 export interface UpstreamToolInfo {
 	name: string;

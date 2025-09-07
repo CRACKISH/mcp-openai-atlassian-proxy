@@ -1,4 +1,4 @@
-import { ContentPart, JsonContentPart, TextContentPart, JsonValue } from '../types/json.js';
+import { ContentPart, JsonContentPart, TextContentPart, JsonValue } from '../types/index.js';
 
 export function firstJson(content: ContentPart[] | null | undefined): JsonValue | null {
 	if (!content) return null;
