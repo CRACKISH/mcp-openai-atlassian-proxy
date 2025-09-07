@@ -1,5 +1,7 @@
 # MCP OpenAI Atlassian Proxy
 
+![CI](https://github.com/CRACKISH/mcp-openai-atlassian-proxy/actions/workflows/docker-build-push.yml/badge.svg)
+
 Dual shim (Jira + Confluence) that connects to a single upstream Atlassian MCP server and re‑exposes focused tool surfaces for OpenAI / other MCP clients.
 
 Current status: Jira + Confluence search & fetch tools proxied; strong typing and strict lint (no `any`/`unknown`/`never`).
@@ -37,11 +39,11 @@ Current status: Jira + Confluence search & fetch tools proxied; strong typing an
 
 Environment variables (all string values):
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `UPSTREAM_MCP_URL` | yes | - | Full URL to upstream Atlassian MCP SSE endpoint (e.g. `https://host:7000/sse`) |
-| `JIRA_SHIM_PORT` | no | `7100` | Port for Jira shim server |
-| `CONFLUENCE_SHIM_PORT` | no | `7200` | Port for Confluence shim server |
+| Variable               | Required | Default | Description                                                                    |
+| ---------------------- | -------- | ------- | ------------------------------------------------------------------------------ |
+| `UPSTREAM_MCP_URL`     | yes      | -       | Full URL to upstream Atlassian MCP SSE endpoint (e.g. `https://host:7000/sse`) |
+| `JIRA_SHIM_PORT`       | no       | `7100`  | Port for Jira shim server                                                      |
+| `CONFLUENCE_SHIM_PORT` | no       | `7200`  | Port for Confluence shim server                                                |
 
 Example `.env`:
 
