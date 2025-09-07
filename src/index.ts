@@ -10,10 +10,14 @@ export interface LaunchConfig {
 }
 
 function readConfig(): LaunchConfig {
-	const upstreamUrl = process.env.UPSTREAM_MCP_URL || '';
+	let upstreamUrl = process.env.UPSTREAM_MCP_URL || '';
 	if (!upstreamUrl) {
 		console.error('UPSTREAM_MCP_URL env var required (e.g. https://host:7000/sse)');
 		process.exit(1);
+	}
+	// Accept either full /sse endpoint or base origin; normalize to .../sse
+	if (!/\/sse\/?$/.test(upstreamUrl)) {
+		upstreamUrl = upstreamUrl.replace(/\/+$/, '') + '/sse';
 	}
 	return {
 		upstreamUrl,
