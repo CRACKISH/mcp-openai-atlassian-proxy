@@ -1,49 +1,49 @@
 {
-  "name": "mcp-openai-atlassian-proxy",
-  "version": "0.1.0",
-  "private": false,
-  "type": "module",
-  "main": "dist/index.js",
-  "files": [
-    "dist"
-  ],
-  "engines": {
-    "node": ">=20.0.0"
-  },
-  "scripts": {
-    "clean": "rimraf dist",
-    "dev": "cross-env NODE_ENV=development ts-node --transpile-only src/index.ts",
-    "build": "npm run clean && tsc -p tsconfig.json",
-    "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
-    "lint": "eslint . --ext .ts",
-    "lint:fix": "eslint . --ext .ts --fix",
-    "format": "prettier --write .",
-    "format:check": "prettier --check ."
-  },
-  "keywords": [
-    "mcp",
-    "atlassian",
-    "proxy",
-    "jira",
-    "confluence",
-    "crucible",
-    "openai"
-  ],
-  "author": "Andrii Vanikhin <vanikhin@gmail.com>",
-  "license": "MIT",
-  "description": "MCP proxy server for OpenAI to connect with Atlassian (Jira, Crucible, Confluence)",
-  "devDependencies": {
-    "@types/node": "^22.5.4",
-    "@typescript-eslint/eslint-plugin": "^8.5.0",
-    "@typescript-eslint/parser": "^8.5.0",
-    "cross-env": "^7.0.3",
-    "eslint": "^9.9.0",
-    "eslint-config-prettier": "^9.1.0",
-    "prettier": "^3.3.3",
-    "rimraf": "^5.0.5",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.6.2",
-    "typescript-eslint": "^8.42.0"
-  }
+	"name": "mcp-openai-atlassian-proxy",
+	"version": "0.1.0",
+	"private": false,
+	"type": "module",
+	"main": "dist/index.js",
+	"files": [
+		"dist"
+	],
+	"engines": {
+		"node": ">=20.0.0"
+	},
+	"scripts": {
+		"clean": "rimraf dist",
+		"dev": "cross-env NODE_ENV=development ts-node --transpile-only src/index.ts",
+		"build": "npm run clean && tsc -p tsconfig.json",
+		"start": "node dist/index.js",
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"lint": "eslint . --ext .ts",
+		"lint:fix": "eslint . --ext .ts --fix",
+		"format": "prettier --write .",
+		"format:check": "prettier --check ."
+	},
+	"keywords": [
+		"mcp",
+		"atlassian",
+		"proxy",
+		"jira",
+		"confluence",
+		"crucible",
+		"openai"
+	],
+	"author": "Andrii Vanikhin <vanikhin@gmail.com>",
+	"license": "MIT",
+	"description": "MCP proxy server for OpenAI to connect with Atlassian (Jira, Crucible, Confluence)",
+	"devDependencies": {
+		"@types/node": "^22.5.4",
+		"@typescript-eslint/eslint-plugin": "^8.5.0",
+		"@typescript-eslint/parser": "^8.5.0",
+		"cross-env": "^7.0.3",
+		"eslint": "^9.9.0",
+		"eslint-config-prettier": "^9.1.0",
+		"prettier": "^3.3.3",
+		"rimraf": "^5.0.5",
+		"ts-node": "^10.9.2",
+		"typescript": "^5.6.2",
+		"typescript-eslint": "^8.42.0"
+	}
 }

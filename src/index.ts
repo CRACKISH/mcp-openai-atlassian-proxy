@@ -6,10 +6,10 @@
  */
 
 export function main() {
-  // Temporary startup banner
-  console.log('[mcp-openai-atlassian-proxy] starting (placeholder)');
+	// Temporary startup banner
+	console.log('[mcp-openai-atlassian-proxy] starting (placeholder)');
 }
 
 if (process.argv[1] === new URL(import.meta.url).pathname) {
-  main();
+	main();
 }
