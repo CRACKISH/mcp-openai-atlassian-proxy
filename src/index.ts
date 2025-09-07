@@ -17,8 +17,8 @@ function readConfig(): LaunchConfig {
 	}
 	return {
 		upstreamUrl,
-		jiraPort: Number(process.env.JIRA_SHIM_PORT || 7101),
-		confluencePort: Number(process.env.CONFLUENCE_SHIM_PORT || 7102)
+		jiraPort: Number(process.env.JIRA_SHIM_PORT || 7100),
+		confluencePort: Number(process.env.CONFLUENCE_SHIM_PORT || 7200)
 	};
 }
 
