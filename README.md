@@ -2,16 +2,16 @@
 
 ![CI](https://github.com/CRACKISH/mcp-openai-atlassian-proxy/actions/workflows/docker-build-push.yml/badge.svg)
 
-Dual shim (Jira + Confluence) that connects to a single upstream Atlassian MCP server and re‑exposes focused tool surfaces for OpenAI / other MCP clients.
+Dual shim (Jira + Confluence) that connects to a single upstream Atlassian MCP server (e.g. `sooperset/mcp-atlassian`) and re‑exposes a minimal, opinionated tool surface for OpenAI / other MCP clients.
 
-Current status: Jira + Confluence search & fetch tools proxied; strong typing and strict lint (no `any`/`unknown`/`never`).
+Current status: Stable single-path (no legacy / debug modes) Jira + Confluence `search` + `fetch`; strict typing (no `any`/`unknown` leaks) and clean output.
 
 ## Features
 
-- One upstream connection reused by two shim endpoints
-- Jira shim (default :7100) exposes `search` and `fetch` (issues)
-- Confluence shim (default :7200) exposes `search` and `fetch` (pages)
-- Clean code style: explicit access modifiers, descriptive names
+- Single upstream MCP SSE connection reused by both shims
+- Jira shim (default :7100) exposes `search` + `fetch` (issues)
+- Confluence shim (default :7200) exposes `search` + `fetch` (pages)
+- No experimental probing / legacy fallbacks: only the new MCP spec (`initialize`, `notifications/initialized`, `tools/list`, `tools/call`)
 - Strong JSON value model (no `any` / `unknown` leaks)
 - ESLint + Prettier + strict typing
 
@@ -103,20 +103,22 @@ curl http://localhost:7200/healthz
 
 ### Tool Contracts
 
-Jira `search` returns: `{ objectIds: ["jira:ABC-123", ...] }`
+Jira `search` -> `{ objectIds: ["jira:ABC-123", ...] }`
 
-Jira `fetch` returns: `{ resources: [{ objectId, type: 'jira_issue', contentType, content }] }`
+Jira `fetch` -> `{ resources: [{ objectId, type: 'jira_issue', contentType, content }] }`
 
-Confluence equivalents mirror the pattern with `confluence:<id>` and `type: 'confluence_page'`.
+Confluence `search` -> `{ objectIds: ["confluence:12345", ...] }`
+
+Confluence `fetch` -> `{ resources: [{ objectId, type: 'confluence_page', contentType, content }] }`
 
 ## Roadmap (next)
 
-1. Auth strategy module (tokens / OAuth)
-2. Structured logging + log level control
+1. Authentication (PAT / OAuth pluggable module)
+2. Structured logging + log level
 3. Env schema validation
-4. Tests (unit + integration harness)
+4. Test suite (unit + integration)
 5. Optional caching layer
-6. Additional Atlassian surfaces (Crucible placeholder)
+6. Additional Atlassian surfaces (Crucible, Bitbucket)
 
 ## Development
 
