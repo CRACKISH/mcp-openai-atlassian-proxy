@@ -196,42 +196,30 @@ function startHttpServer(
     }
   });
 
-  // Accept POST messages: /sse?sessionId=...
-  app.post('/messages', express.raw({ type: 'application/json', limit: '4mb' }), async (req, res) => {
+  async function handlePost(req: express.Request, res: express.Response, alias: boolean) {
     let sessionId = (req.query.sessionId as string) || (req.query.session_id as string) || '';
-    // If no sessionId provided but exactly one active session exists, assume that one (helps some clients)
     if (!sessionId && transports.size === 1) {
       sessionId = [...transports.keys()][0];
       console.log(`[${cfg.name}] inferred sessionId=${sessionId} for POST without param`);
     }
-    if (!sessionId) {
-      // Return 404 so http-first clients gracefully fallback to SSE only instead of treating as protocol error
-      res.status(404).send('no session');
-      return;
-    }
+    if (!sessionId) { res.status(404).send('no session'); return; }
     const transport = transports.get(sessionId);
-    if (!transport) {
-      res.status(404).send('unknown session');
-      return;
-    }
+    if (!transport) { res.status(404).send('unknown session'); return; }
     try {
-      // Express raw middleware sets req.body as Buffer
       const rawBody = (req.body as Buffer | undefined)?.toString('utf-8');
-      // Cast to the minimal shape required by handlePostMessage without using 'any'
       const minimalReq = req as unknown as Request;
       const minimalRes = res as unknown as Response;
-      console.log(`[${cfg.name}] POST message session=${sessionId} bytes=${rawBody?.length ?? 0}`);
+      console.log(`[${cfg.name}] POST ${alias ? 'alias ' : ''}message session=${sessionId} bytes=${rawBody?.length ?? 0}`);
       await transport.handlePostMessage(minimalReq as never, minimalRes as never, rawBody);
     } catch (e) {
-      console.error(`[${cfg.name}] post error session=${sessionId}:`, e);
+      console.error(`[${cfg.name}] post ${alias ? 'alias ' : ''}error session=${sessionId}:`, e);
       if (!res.headersSent) res.status(500).send('error');
     }
-  });
+  }
 
-  // Backward compatibility: if some old client still POSTs /sse → respond with 410 + hint
-  app.post('/sse', (_req, res) => {
-    res.status(410).json({ error: 'POST /sse deprecated; use /messages?sessionId=...' });
-  });
+  app.post('/messages', express.raw({ type: 'application/json', limit: '4mb' }), (req, res) => void handlePost(req, res, false));
+  // Alias to support clients that still try POST /sse (e.g. http-first probing)
+  app.post('/sse', express.raw({ type: 'application/json', limit: '4mb' }), (req, res) => void handlePost(req, res, true));
 
   app.listen(options.port, () => {
     console.log(`[${cfg.name}] listening on :${options.port} -> upstream ${upstreamUrl}`);
