@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request, Response } from 'express';
 import cors from 'cors';
 import { Server as MCPServer } from '@modelcontextprotocol/sdk/server/index.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
@@ -158,6 +158,8 @@ function startHttpServer(
   const app = express();
   app.use(cors());
   let connectionSeq = 0;
+  // Active SSE transports by sessionId (so POSTs can be routed)
+  const transports = new Map<string, SSEServerTransport>();
 
   app.get('/healthz', (_req, res) => {
     res.json({ ok: true, upstream: upstreamUrl, searchTool, getTool, prefix: cfg.objectIdPrefix });
@@ -173,6 +175,38 @@ function startHttpServer(
     res.on('close', () => console.log(`[${cfg.name}] disconnect #${id}`));
     const transport = new SSEServerTransport('/sse', res);
     await mcp.connect(transport);
+    transports.set(transport.sessionId, transport);
+    console.log(`[${cfg.name}] session ${transport.sessionId} established`);
+    // Remove when closed
+    transport.onclose = () => {
+      transports.delete(transport.sessionId);
+      console.log(`[${cfg.name}] session ${transport.sessionId} closed`);
+    };
+  });
+
+  // Accept POST messages: /sse?sessionId=...
+  app.post('/sse', express.raw({ type: 'application/json', limit: '4mb' }), async (req, res) => {
+    const sessionId = (req.query.sessionId as string) || '';
+    if (!sessionId) {
+      res.status(400).send('missing sessionId');
+      return;
+    }
+    const transport = transports.get(sessionId);
+    if (!transport) {
+      res.status(404).send('unknown session');
+      return;
+    }
+    try {
+      // Express raw middleware sets req.body as Buffer
+      const rawBody = (req.body as Buffer | undefined)?.toString('utf-8');
+      // Cast to the minimal shape required by handlePostMessage without using 'any'
+      const minimalReq = req as unknown as Request;
+      const minimalRes = res as unknown as Response;
+      await transport.handlePostMessage(minimalReq as never, minimalRes as never, rawBody);
+    } catch (e) {
+      console.error(`[${cfg.name}] post error session=${sessionId}:`, e);
+      if (!res.headersSent) res.status(500).send('error');
+    }
   });
 
   app.listen(options.port, () => {
