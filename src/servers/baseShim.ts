@@ -33,6 +33,10 @@ export async function startShim(config: ShimConfig, options: ShimOptions) {
     remoteUrl: options.upstreamUrl,
     logger: (line: string, ...rest: string[]) => console.log(`[${config.name}:upstream] ${line}`, ...rest)
   });
+  if (config.startupDelayMs && config.startupDelayMs > 0) {
+    console.log(`[${config.name}] startup delay ${config.startupDelayMs}ms before upstream connect`);
+    await delay(config.startupDelayMs);
+  }
   await upstream.connectIfNeeded();
 
   const searchTool = upstream.findToolName(n => config.searchToolPredicate(n));
@@ -83,7 +87,6 @@ export async function startShim(config: ShimConfig, options: ShimOptions) {
     }
   });
 
-  if (config.startupDelayMs) await delay(config.startupDelayMs);
   startHttpServer(config, options, mcp, searchTool, getTool, upstream.options.remoteUrl);
 }
 
