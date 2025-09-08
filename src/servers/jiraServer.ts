@@ -14,7 +14,7 @@ const JIRA_GET = 'jira_get_issue';
 
 export async function startJiraShim(opts: JiraShimOptions) {
 	// small startup delay to let upstream come up (race mitigation)
-	const startDelay = Number(process.env.SHIM_START_DELAY_MS || 500);
+	const startDelay = Number(process.env.SHIM_START_DELAY_MS || 2000);
 	if (startDelay > 0) await new Promise(r => setTimeout(r, startDelay));
 	const upstream = opts.upstreamClient ?? new UpstreamClient({ remoteUrl: opts.upstreamUrl, monitorTools: [JIRA_SEARCH, JIRA_GET] });
 	await upstream.connectIfNeeded();
@@ -111,11 +111,11 @@ export async function startJiraShim(opts: JiraShimOptions) {
 			transports.delete(transport.sessionId);
 			console.log('[jira-shim] SSE session closed:', transport.sessionId, 'remaining:', transports.size);
 		};
-		try {
-			await mcp.connect(transport);
-		} catch {
-			clearInterval(heartbeat); transports.delete(transport.sessionId);
-		}
+		
+		// Don't await mcp.connect - let it run async to avoid premature session cleanup
+		mcp.connect(transport).catch(err => {
+			console.warn('[jira-shim] mcp.connect failed for session', transport.sessionId, ':', err.message);
+		});
 	});
 
 	app.post('/messages', express.raw({ type: 'application/json', limit: '4mb' }), async (req, res) => {
