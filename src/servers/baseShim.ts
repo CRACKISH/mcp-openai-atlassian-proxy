@@ -179,7 +179,7 @@ function startHttpServer(
     const ua = (req.headers['user-agent'] as string | undefined) || '';
     console.log(`[${cfg.name}] connect #${id} ip=${ip} ua="${ua}"`);
     res.on('close', () => console.log(`[${cfg.name}] disconnect #${id}`));
-    const transport = new SSEServerTransport('/sse', res);
+  const transport = new SSEServerTransport('/messages', res);
     // Register BEFORE connect to avoid race with first POST initialize
     transports.set(transport.sessionId, transport);
     console.log(`[${cfg.name}] pre-register session ${transport.sessionId}`);
@@ -197,7 +197,7 @@ function startHttpServer(
   });
 
   // Accept POST messages: /sse?sessionId=...
-  app.post('/sse', express.raw({ type: 'application/json', limit: '4mb' }), async (req, res) => {
+  app.post('/messages', express.raw({ type: 'application/json', limit: '4mb' }), async (req, res) => {
     let sessionId = (req.query.sessionId as string) || (req.query.session_id as string) || '';
     // If no sessionId provided but exactly one active session exists, assume that one (helps some clients)
     if (!sessionId && transports.size === 1) {
@@ -226,6 +226,11 @@ function startHttpServer(
       console.error(`[${cfg.name}] post error session=${sessionId}:`, e);
       if (!res.headersSent) res.status(500).send('error');
     }
+  });
+
+  // Backward compatibility: if some old client still POSTs /sse → respond with 410 + hint
+  app.post('/sse', (_req, res) => {
+    res.status(410).json({ error: 'POST /sse deprecated; use /messages?sessionId=...' });
   });
 
   app.listen(options.port, () => {
