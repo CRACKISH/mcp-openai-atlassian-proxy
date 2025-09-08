@@ -1,4 +1,8 @@
-import { ToolResponse, ToolArguments, JsonObject, JsonValue } from '../types/index.js';
+import { ToolArguments, JsonValue } from '../types/index.js';
+
+// Local lightweight JSON object type for this client (avoid exporting large type surface)
+type JsonObject = { [k: string]: JsonValue };
+interface ToolResponse { content?: JsonValue[] }
 
 export interface UpstreamToolInfo {
 	name: string;

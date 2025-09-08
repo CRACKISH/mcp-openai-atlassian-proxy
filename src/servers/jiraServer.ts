@@ -1,27 +1,74 @@
-import { startShim, ShimOptions } from './baseShim.js';
-import { extractJiraKeys, firstJson } from '../utils/index.js';
-import { JsonValue } from '../types/index.js';
+import express from 'express';
+import cors from 'cors';
+import { Server as MCPServer } from '@modelcontextprotocol/sdk/server/index.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { UpstreamClient } from '../remote/index.js';
+import { ToolArguments } from '../types/index.js';
 
-export interface JiraShimOptions extends ShimOptions { }
+export interface JiraShimOptions { port: number; upstreamUrl: string; upstreamClient?: UpstreamClient }
 
-export async function startJiraShim(options: JiraShimOptions) {
-	await startShim({
-		name: 'jira-shim',
-		version: '0.1.0',
-		objectIdPrefix: 'jira',
-		resourceType: 'jira_issue',
-		searchDescription: 'Search Jira issues; returns { objectIds: ["jira:KEY"] }',
-		fetchDescription: 'Fetch Jira issues by keys returned from search()',
-		startupDelayMs: 1000,
-		// Static upstream tool names (no discovery)
-		upstreamSearchTool: 'jira_search', // static upstream name
-		upstreamGetTool: 'jira_get_issue',
-		// Dummy predicates retained only to satisfy typing (never used because static names provided)
-		searchToolPredicate: () => false,
-		getToolPredicate: () => false,
-		buildSearchArgs: (query, topK) => ({ jql: (query || '') as JsonValue, limit: (topK || 20) as JsonValue }),
-		buildFetchArgs: id => ({ issue_key: id }),
-		extractIds: content => extractJiraKeys(content as unknown as any[]),
-		parseFetched: content => firstJson(content as unknown as any[])
-	}, options);
+// Fixed upstream tool names we proxy as-is
+const JIRA_SEARCH = 'jira_search';
+const JIRA_GET = 'jira_get_issue';
+
+export async function startJiraShim(opts: JiraShimOptions) {
+	const upstream = opts.upstreamClient ?? new UpstreamClient({ remoteUrl: opts.upstreamUrl });
+	await upstream.connectIfNeeded();
+
+	const mcp = new MCPServer({ name: 'jira-shim', version: '0.2.0' }, { capabilities: { tools: {} } });
+
+	mcp.setRequestHandler(ListToolsRequestSchema, async () => {
+		const tools = upstream.listTools();
+		const searchInfo = tools.find(t => t.name === JIRA_SEARCH);
+		const getInfo = tools.find(t => t.name === JIRA_GET);
+		return {
+			tools: [
+				{ name: 'search', description: searchInfo?.description || 'Jira search', inputSchema: searchInfo?.inputSchema || { type: 'object', properties: {} } },
+				{ name: 'fetch', description: getInfo?.description || 'Jira issue fetch', inputSchema: getInfo?.inputSchema || { type: 'object', properties: {} } }
+			]
+		};
+	});
+
+	mcp.setRequestHandler(CallToolRequestSchema, async req => {
+		const tool = req.params.name as string;
+		const args = (req.params.arguments || {}) as ToolArguments;
+		try {
+			if (tool === 'search') {
+				const r = await upstream.callTool(JIRA_SEARCH, args);
+				return { content: r.content };
+			}
+			if (tool === 'fetch') {
+				const r = await upstream.callTool(JIRA_GET, args);
+				return { content: r.content };
+			}
+			return { content: [{ type: 'text', text: `unknown tool ${tool}` }] };
+		} catch (e) {
+			return { content: [{ type: 'text', text: `jira error: ${(e as { message?: string }).message || String(e)}` }] };
+		}
+	});
+
+	const app = express();
+	app.use(cors());
+	const transports = new Map<string, SSEServerTransport>();
+
+	app.get('/healthz', (_req, res) => res.json({ ok: true, upstream: opts.upstreamUrl, search: JIRA_SEARCH, fetch: JIRA_GET }));
+
+	app.get('/sse', async (_req, res) => {
+		const transport = new SSEServerTransport('jira/messages', res); // prefixed endpoint for client POSTs
+		transports.set(transport.sessionId, transport);
+		transport.onclose = () => transports.delete(transport.sessionId);
+		try { await mcp.connect(transport); } catch { transports.delete(transport.sessionId); }
+	});
+
+	app.post('/messages', express.raw({ type: 'application/json', limit: '4mb' }), async (req, res) => {
+		const sid = (req.query.sessionId as string) || (req.query.session_id as string) || [...transports.keys()][0];
+		const transport = transports.get(sid);
+		if (!transport) { res.status(404).end(); return; }
+		const raw = (req.body as Buffer | undefined)?.toString('utf-8');
+		await (transport as unknown as { handlePostMessage: (r: express.Request, s: express.Response, body?: string) => Promise<void> })
+			.handlePostMessage(req, res, raw);
+	});
+
+	app.listen(opts.port, () => console.log(`[jira-shim] :${opts.port} -> ${opts.upstreamUrl}`));
 }
