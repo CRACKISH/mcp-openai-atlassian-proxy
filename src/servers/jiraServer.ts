@@ -1,6 +1,4 @@
 import { startShimServer, ShimOptions } from './shimFactory.js';
-
-// Upstream tool identifiers (constant values must match remote MCP server tool names)
 const JIRA_SEARCH_TOOL = 'jira_search';
 const JIRA_FETCH_TOOL = 'jira_get_issue';
 
