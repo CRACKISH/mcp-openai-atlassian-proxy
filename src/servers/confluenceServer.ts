@@ -27,6 +27,7 @@ export async function startConfluenceShim(options: ConfluenceShimOptions) {
 	registerListTools(mcp);
 	registerCallHandler(mcp, upstream, confSearchTool, confGetTool);
 
+	await delay(1000); // allow upstream client to stabilize before serving
 	startHttpServer(options, mcp, confSearchTool, confGetTool);
 }
 
@@ -141,10 +142,20 @@ function startHttpServer(
 ) {
 	const app = express();
 	app.use(cors());
+	let connectionSeq = 0;
 	app.get('/healthz', (_req, res) => {
 		res.json({ ok: true, upstream: options.upstreamUrl, confSearchTool, confGetTool });
 	});
 	app.get('/sse', async (_req, res) => {
+		const req = _req;
+		const id = ++connectionSeq;
+		const ipHeader = (req.headers['x-forwarded-for'] as string | undefined) || req.socket.remoteAddress || 'unknown';
+		const ip = ipHeader.split(',')[0].trim();
+		const ua = (req.headers['user-agent'] as string | undefined) || '';
+		console.log(`[confluence-shim] connect #${id} ip=${ip} ua="${ua}"`);
+		res.on('close', () => {
+			console.log(`[confluence-shim] disconnect #${id}`);
+		});
 		const transport = new SSEServerTransport('/sse', res);
 		await mcp.connect(transport);
 	});
@@ -155,4 +166,6 @@ function startHttpServer(
 
 // --- small util -----------------------------------------------------------
 function textContent(text: string): { content: ContentPart[] } { return { content: [{ type: 'text', text }] } as { content: ContentPart[] }; }
+
+function delay(ms: number) { return new Promise<void>(r => setTimeout(r, ms)); }
 

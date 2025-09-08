@@ -28,6 +28,8 @@ export async function startJiraShim(options: JiraShimOptions) {
 	registerListTools(mcp);
 	registerCallHandler(mcp, upstream, jiraSearchTool, jiraGetTool);
 
+	// Small startup delay to ensure upstream fully settled before accepting clients
+	await delay(1000);
 	startHttpServer(options, mcp, jiraSearchTool, jiraGetTool);
 }
 
@@ -142,10 +144,21 @@ function startHttpServer(
 ) {
 	const app = express();
 	app.use(cors());
+
+	let connectionSeq = 0; // incremental id for SSE clients
 	app.get('/healthz', (_req, res) => {
 		res.json({ ok: true, upstream: options.upstreamUrl, jiraSearchTool, jiraGetTool });
 	});
 	app.get('/sse', async (_req, res) => {
+		const req = _req; // alias for clarity
+		const id = ++connectionSeq;
+		const ipHeader = (req.headers['x-forwarded-for'] as string | undefined) || req.socket.remoteAddress || 'unknown';
+		const ip = ipHeader.split(',')[0].trim();
+		const ua = (req.headers['user-agent'] as string | undefined) || '';
+		console.log(`[jira-shim] connect #${id} ip=${ip} ua="${ua}"`);
+		res.on('close', () => {
+			console.log(`[jira-shim] disconnect #${id}`);
+		});
 		const transport = new SSEServerTransport('/sse', res);
 		await mcp.connect(transport);
 	});
@@ -156,3 +169,5 @@ function startHttpServer(
 
 // --- small util -----------------------------------------------------------
 function textContent(text: string): { content: ContentPart[] } { return { content: [{ type: 'text', text }] } as { content: ContentPart[] }; }
+
+function delay(ms: number) { return new Promise<void>(r => setTimeout(r, ms)); }

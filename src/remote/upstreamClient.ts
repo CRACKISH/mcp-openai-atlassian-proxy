@@ -81,9 +81,10 @@ private async openSse(base: string): Promise<void> {
 	this.sseAbort?.abort();
 	const ac = new AbortController();
 	this.sseAbort = ac;
-	const res = await fetch(sseUrl, { signal: ac.signal, headers: { Accept: 'text/event-stream' } });
+		this.log(`[upstream] opening SSE ${sseUrl}`);
+		const res = await fetch(sseUrl, { signal: ac.signal, headers: { Accept: 'text/event-stream' } });
 	if (!res.ok || !res.body) throw new Error(`SSE connect failed (${res.status})`);
-	void this.consumeSse(res.body.getReader());
+		void this.consumeSse(res.body.getReader()).catch(e => this.log('[upstream] SSE reader error', (e as Error).message));
 }
 
 // legacy probing removed; upstream provides endpoint event
@@ -93,12 +94,17 @@ private async waitForEndpoint(ms: number): Promise<void> { if (this.messageTempl
 	private async consumeSse(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
 		const decoder = new TextDecoder('utf-8');
 		let buffer = '';
+		try {
 		for (;;) {
 			const chunk = await reader.read();
 			if (chunk.done) return;
 			buffer += decoder.decode(chunk.value, { stream: true });
 			buffer = buffer.replace(/\r/g, ''); // normalize CRLF
 			buffer = await this.extractAndProcessEvents(buffer);
+		}
+		} finally {
+			this.connected = false;
+			this.log('[upstream] SSE closed');
 		}
 	}
 
@@ -135,7 +141,15 @@ private async waitForEndpoint(ms: number): Promise<void> { if (this.messageTempl
 	private handleEndpointEvent(payload: string): void {
 		let path = payload.trim();
 		if (!path.startsWith('/')) path = '/' + path;
-		const m = path.match(/session_id=([A-Za-z0-9_-]+)/);
+		// Hotfix: some upstreams incorrectly return /sse?session_id=... for POST target.
+		// Normalize to /messages? so subsequent JSON-RPC POSTs succeed.
+		if (/^\/sse\?/i.test(path)) {
+			const original = path;
+			path = path.replace(/^\/sse\?/i, '/messages?');
+			this.log(`[upstream] rewrote endpoint '${original}' -> '${path}'`);
+		}
+		// Accept multiple key spellings: session_id=, sessionId=, session-id=
+		const m = path.match(/(?:session[_-]?id|sessionId)=([A-Za-z0-9_-]+)/);
 		if (m) {
 			this.sessionId = m[1];
 			const templPath = path.replace(this.sessionId, '{id}');
