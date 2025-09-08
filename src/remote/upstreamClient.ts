@@ -45,6 +45,8 @@ export class UpstreamClient {
 	private log(msg: string, ...rest: string[]): void { (this.options.logger || console.log)(msg, ...rest); }
 
 	private async connectOnce(): Promise<void> {
+		// Extract base URL without /sse suffix but keep path prefix 
+		// e.g. https://host/upstream/sse -> https://host/upstream (for endpoint concatenation)
 		this.base = this.options.remoteUrl.replace(/\/sse\/?$/, '');
 		await this.openSse();
 		await this.waitForEndpoint();
@@ -117,9 +119,29 @@ export class UpstreamClient {
 	private handleEndpoint(payload: string): void {
 		let path = payload.trim();
 		if (!path.startsWith('/')) path = '/' + path;
-		if (/^\/sse\?/i.test(path)) { const original = path; path = path.replace(/^\/sse\?/i, '/messages?'); this.log(`[upstream] rewrote endpoint '${original}' -> '${path}'`); }
+		if (/^\/sse\?/i.test(path)) { 
+			const original = path; 
+			path = path.replace(/^\/sse\?/i, '/messages?'); 
+			this.log(`[upstream] rewrote endpoint '${original}' -> '${path}'`); 
+		}
 		const m = path.match(/(?:session[_-]?id|sessionId)=([A-Za-z0-9_-]+)/);
-		if (m) { this.sessionId = m[1]; const templPath = path.replace(this.sessionId, '{id}'); this.messageTemplate = this.base + templPath; }
+		if (m) { 
+			this.sessionId = m[1]; 
+			const templPath = path.replace(this.sessionId, '{id}');
+			
+			// If path starts with /jira or /confluence, it's absolute from domain root
+			// Otherwise it's relative to our base path
+			if (/^\/(jira|confluence)\//.test(templPath)) {
+				const u = new URL(this.options.remoteUrl);
+				this.messageTemplate = u.origin + templPath;
+			} else {
+				this.messageTemplate = this.base + templPath;
+			}
+			
+			this.log(`[upstream] endpoint set: ${this.messageTemplate}`);
+		} else {
+			this.log('[upstream] endpoint missing sessionId:', payload);
+		}
 	}
 
 	private dispatchJsonRpc(payload: string): void {
