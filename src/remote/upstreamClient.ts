@@ -26,6 +26,7 @@ export class UpstreamClient {
 	private pending: Record<string, (value: JsonObject) => void> = {};
 	private sseAbort: AbortController | null = null;
 	private base = '';
+	private connectPromise: Promise<void> | null = null;
 
 	/**
 	 * Create a new upstream client.
@@ -52,7 +53,11 @@ export class UpstreamClient {
 	 */
 	public async connectIfNeeded(): Promise<void> {
 		if (this.connected) return;
-		await this.connectLoop();
+		if (this.connectPromise) return this.connectPromise;
+		this.connectPromise = (async () => {
+			try { await this.connectLoop(); } finally { this.connectPromise = null; }
+		})();
+		return this.connectPromise;
 	}
 
 	private log(msg: string, ...rest: string[]): void { (this.options.logger || console.log)(msg, ...rest); }
@@ -61,40 +66,48 @@ private async connectOnce(): Promise<void> {
 	const base = this.options.remoteUrl.replace(/\/sse\/?$/, '');
 	this.base = base;
 	await this.openSse(base);
-	await this.waitForEndpoint(10000);
+	await this.waitForEndpoint(3000);
 	if (!this.messageTemplate) throw new Error('No endpoint event from upstream');
 	await this.request('initialize', {
 		protocolVersion: '2025-06-18' as JsonValue,
 		capabilities: {} as JsonValue,
 		clientInfo: { name: 'atlassian-upstream-proxy', version: '0.1.0' } as JsonValue
 	} as JsonObject);
-	try {
-		await this.notify('notifications/initialized');
-	} catch (e) {
-		this.log('[upstream] notify failed', (e as Error).message);
-	}
+	try { await this.notify('notifications/initialized'); } catch (e) { this.log('[upstream] notify failed', (e as Error).message); }
 	const list = await this.request('tools/list', {});
 	const toolsField = (list.result as JsonObject | undefined)?.tools;
 	const toolsArr = Array.isArray(toolsField) ? toolsField : [];
 	this.tools = toolsArr.filter(v => typeof v === 'object' && v !== null && 'name' in (v as JsonObject)).map(v => ({
 		name: String((v as JsonObject).name),
-		description: typeof (v as JsonObject).description === 'string' ? String((v as JsonObject).description) : undefined,
+		description: typeof (v as JsonObject).description === 'string' ? this.sanitizeDescription(String((v as JsonObject).description)) : undefined,
 		inputSchema: (v as JsonObject).inputSchema as JsonObject | undefined
 	}));
 	for (const t of toolsArr) {
 		try {
 			const name = String((t as JsonObject).name || '');
-			const desc = (t as JsonObject).description ? ` ${(t as JsonObject).description}` : '';
-			// Some servers may include inputSchema; log keys if present.
+			if (!['jira_search','jira_get_issue','confluence_search','confluence_get_page'].includes(name)) continue;
+			const rawDesc = typeof (t as JsonObject).description === 'string' ? String((t as JsonObject).description) : '';
+			const cleanDesc = this.sanitizeDescription(rawDesc);
 			const schema = (t as JsonObject).inputSchema as JsonObject | undefined;
 			const schemaKeys = schema && typeof schema === 'object' ? Object.keys(schema as JsonObject).slice(0, 10) : [];
-			this.log(`[upstream] tool ${name}${desc} schemaKeys=${schemaKeys.join(',')}`);
+			this.log(`[upstream] tool ${name}${cleanDesc ? ' - ' + cleanDesc : ''} schemaKeys=${schemaKeys.join(',')}`);
 		} catch { /* ignore logging errors */ }
 	}
 	this.connected = true;
 }
 
-private async openSse(base: string): Promise<void> {
+		/** Compact multiline / control-char heavy docstrings into a single short sentence for logging. */
+		private sanitizeDescription(desc: string): string {
+			if (!desc) return '';
+			let s = desc.replace(/[\x00-\x08\x0B-\x1F\x7F]/g, ' ');
+			const firstPara = s.split(/\n\s*\n/)[0];
+			const firstLine = firstPara.split(/\n/)[0];
+			s = firstLine.replace(/\s+/g, ' ').trim();
+			if (s.length > 140) s = s.slice(0, 137).trimEnd() + '...';
+			return s;
+		}
+
+	private async openSse(base: string): Promise<void> {
 	if (!this.sessionId) this.sessionId = `shim-${Math.random().toString(36).slice(2)}`;
 	const sseUrl = base.endsWith('/sse') ? base : `${base}/sse`;
 	this.sseAbort?.abort();
@@ -108,7 +121,12 @@ private async openSse(base: string): Promise<void> {
 
 // legacy probing removed; upstream provides endpoint event
 
-private async waitForEndpoint(ms: number): Promise<void> { if (this.messageTemplate) return; await new Promise(resolve => setTimeout(resolve, ms)); }
+private async waitForEndpoint(timeoutMs: number): Promise<void> {
+	const start = Date.now();
+	while (!this.messageTemplate && Date.now() - start < timeoutMs) {
+		await new Promise(r => setTimeout(r, 50));
+	}
+}
 
 	private async consumeSse(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
 		const decoder = new TextDecoder('utf-8');
