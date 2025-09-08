@@ -31,7 +31,7 @@ export interface ShimConfig {
 export async function startShim(config: ShimConfig, options: ShimOptions) {
   const upstream = options.upstreamClient ?? new UpstreamClient({
     remoteUrl: options.upstreamUrl,
-    logger: (line: string, ...rest: string[]) => console.log(`[${config.name}] ${line}`, ...rest)
+    logger: (line: string, ...rest: string[]) => console.log(`[${config.name}:upstream] ${line}`, ...rest)
   });
   await upstream.connectIfNeeded();
 
