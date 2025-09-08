@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import 'dotenv/config';
 import { startJiraShim, startConfluenceShim } from './servers/index.js';
+import { UpstreamClient } from './remote/index.js';
 
 export interface LaunchConfig {
 	upstreamUrl: string; // full /sse endpoint of original Atlassian MCP
@@ -29,9 +30,12 @@ export async function main() {
 	const cfg = readConfig();
 	console.log('[proxy] starting dual shims');
 	console.log('[proxy] upstream:', cfg.upstreamUrl);
+	// Shared upstream client to avoid duplicate connections & logs
+	const sharedUpstream = new UpstreamClient({ remoteUrl: cfg.upstreamUrl, logger: (l,...r)=>console.log('[upstream-shared]', l, ...r) });
+	await sharedUpstream.connectIfNeeded();
 	await Promise.all([
-		startJiraShim({ port: cfg.jiraPort, upstreamUrl: cfg.upstreamUrl }),
-		startConfluenceShim({ port: cfg.confluencePort, upstreamUrl: cfg.upstreamUrl })
+		startJiraShim({ port: cfg.jiraPort, upstreamUrl: cfg.upstreamUrl, upstreamClient: sharedUpstream }),
+		startConfluenceShim({ port: cfg.confluencePort, upstreamUrl: cfg.upstreamUrl, upstreamClient: sharedUpstream })
 	]);
 	console.log('[proxy] both shims launched');
 }

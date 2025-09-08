@@ -2,7 +2,7 @@ import { startShim, ShimOptions } from './baseShim.js';
 import { extractJiraKeys, firstJson } from '../utils/index.js';
 import { JsonValue } from '../types/index.js';
 
-export interface JiraShimOptions extends ShimOptions {}
+export interface JiraShimOptions extends ShimOptions { }
 
 export async function startJiraShim(options: JiraShimOptions) {
 	await startShim({

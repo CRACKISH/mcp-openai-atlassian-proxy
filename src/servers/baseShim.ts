@@ -6,7 +6,7 @@ import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprot
 import { UpstreamClient } from '../remote/index.js';
 import { ContentPart, ToolArguments, ToolResponse, JsonValue } from '../types/index.js';
 
-export interface ShimOptions { port: number; upstreamUrl: string }
+export interface ShimOptions { port: number; upstreamUrl: string; upstreamClient?: UpstreamClient }
 
 export interface ShimConfig {
   name: string;              // e.g. 'jira-shim'
@@ -29,7 +29,10 @@ export interface ShimConfig {
 }
 
 export async function startShim(config: ShimConfig, options: ShimOptions) {
-  const upstream = new UpstreamClient({ remoteUrl: options.upstreamUrl });
+  const upstream = options.upstreamClient ?? new UpstreamClient({
+    remoteUrl: options.upstreamUrl,
+    logger: (line: string, ...rest: string[]) => console.log(`[${config.name}] ${line}`, ...rest)
+  });
   await upstream.connectIfNeeded();
 
   const searchTool = upstream.findToolName(n => config.searchToolPredicate(n));

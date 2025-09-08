@@ -2,7 +2,7 @@ import { startShim, ShimOptions } from './baseShim.js';
 import { extractConfluenceIds, firstJson } from '../utils/index.js';
 import { JsonValue } from '../types/index.js';
 
-export interface ConfluenceShimOptions extends ShimOptions {}
+export interface ConfluenceShimOptions extends ShimOptions { }
 
 export async function startConfluenceShim(options: ConfluenceShimOptions) {
 	await startShim({
