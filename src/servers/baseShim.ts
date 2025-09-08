@@ -104,8 +104,12 @@ function assertTool(toolName: string | null, label: string, shimName: string) {
 
 type AnyObj = Record<string, unknown>;
 // Internal helper lenient typing: using any to bypass strict 'unknown forbidden' project rule for transient error inspection.
+// Treat both unexpected keyword and missing field errors (pydantic styles) as adaptable.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const isUnexpectedKwArg = (e: any) => (e as { message?: string })?.message?.includes('Unexpected keyword argument');
+const isAdaptableArgError = (e: any) => {
+  const msg = (e as { message?: string })?.message || '';
+  return msg.includes('Unexpected keyword argument') || msg.includes('field required');
+};
 
 async function callWithVariants(upstream: UpstreamClient, toolName: string, variants: AnyObj[]): Promise<ToolResponse> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -115,7 +119,7 @@ async function callWithVariants(upstream: UpstreamClient, toolName: string, vari
       return await upstream.callTool(toolName, v as ToolArguments);
     } catch (e) {
       lastErr = e;
-      if (!isUnexpectedKwArg(e)) break; // stop if it's a different error
+  if (!isAdaptableArgError(e)) break; // stop if it's a different error
     }
   }
   throw lastErr;
@@ -173,7 +177,18 @@ async function fetchOne(
   cfg: ShimConfig
 ) {
   const id = rawObjectId.replace(new RegExp(`^${cfg.objectIdPrefix}:`, 'i'), '');
-  const resp = await upstream.callTool(tool, cfg.buildFetchArgs(id));
+  const baseArgs = cfg.buildFetchArgs(id);
+  const variants: AnyObj[] = [
+    baseArgs,
+    { id },
+    { key: id },
+    { issueKey: id },
+    { idOrKey: id },
+    { pageId: id },
+    { ids: [id] },
+    { objectIds: [id] }
+  ];
+  const resp = await callWithVariants(upstream, tool, variants);
   const rawContent = resp.content || [];
   const jsonValues: JsonValue[] = Array.isArray(rawContent)
     ? rawContent.map(v => (v as unknown as JsonValue))
