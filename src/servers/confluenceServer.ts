@@ -12,6 +12,8 @@ const CONF_SEARCH = 'confluence_search';
 const CONF_GET = 'confluence_get_page';
 
 export async function startConfluenceShim(opts: ConfluenceShimOptions) {
+	const startDelay = Number(process.env.SHIM_START_DELAY_MS || 500);
+	if (startDelay > 0) await new Promise(r => setTimeout(r, startDelay));
 	const upstream = opts.upstreamClient ?? new UpstreamClient({ remoteUrl: opts.upstreamUrl, monitorTools: [CONF_SEARCH, CONF_GET] });
 	await upstream.connectIfNeeded();
 

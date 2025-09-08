@@ -13,6 +13,9 @@ const JIRA_SEARCH = 'jira_search';
 const JIRA_GET = 'jira_get_issue';
 
 export async function startJiraShim(opts: JiraShimOptions) {
+	// small startup delay to let upstream come up (race mitigation)
+	const startDelay = Number(process.env.SHIM_START_DELAY_MS || 500);
+	if (startDelay > 0) await new Promise(r => setTimeout(r, startDelay));
 	const upstream = opts.upstreamClient ?? new UpstreamClient({ remoteUrl: opts.upstreamUrl, monitorTools: [JIRA_SEARCH, JIRA_GET] });
 	await upstream.connectIfNeeded();
 
