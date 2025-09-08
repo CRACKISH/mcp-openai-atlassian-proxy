@@ -179,8 +179,10 @@ function startHttpServer(
     const ua = (req.headers['user-agent'] as string | undefined) || '';
     console.log(`[${cfg.name}] connect #${id} ip=${ip} ua="${ua}"`);
     res.on('close', () => console.log(`[${cfg.name}] disconnect #${id}`));
-  // Use relative path (no leading slash) so clients preserve mounting prefix (/jira, /confluence)
-  const transport = new SSEServerTransport('messages', res);
+  // Advertise a prefixed endpoint so clients behind reverse proxy keep /jira or /confluence when POSTing.
+  // SDK seems to normalize to leading '/', so providing `${cfg.objectIdPrefix}/messages` should yield
+  // endpoint event like `/jira/messages?sessionId=...` (not bare `/messages`).
+  const transport = new SSEServerTransport(`${cfg.objectIdPrefix}/messages`, res);
     // Register BEFORE connect to avoid race with first POST initialize
     transports.set(transport.sessionId, transport);
     console.log(`[${cfg.name}] pre-register session ${transport.sessionId}`);
