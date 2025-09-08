@@ -16,7 +16,7 @@ export async function startJiraShim(opts: JiraShimOptions) {
 	const upstream = opts.upstreamClient ?? new UpstreamClient({ remoteUrl: opts.upstreamUrl, monitorTools: [JIRA_SEARCH, JIRA_GET] });
 	await upstream.connectIfNeeded();
 
-	const mcp = new MCPServer({ name: 'jira-shim', version: '0.2.0' }, { capabilities: { tools: {} } });
+	const mcp = new MCPServer({ name: 'jira-shim', version: '0.2.0' }, { capabilities: { tools: {}, prompts: {}, resources: {} } });
 
 	// respond with empty lists instead of method-not-found
 	mcp.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: [] }));

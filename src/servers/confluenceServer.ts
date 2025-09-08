@@ -15,7 +15,7 @@ export async function startConfluenceShim(opts: ConfluenceShimOptions) {
 	const upstream = opts.upstreamClient ?? new UpstreamClient({ remoteUrl: opts.upstreamUrl, monitorTools: [CONF_SEARCH, CONF_GET] });
 	await upstream.connectIfNeeded();
 
-	const mcp = new MCPServer({ name: 'confluence-shim', version: '0.2.0' }, { capabilities: { tools: {} } });
+	const mcp = new MCPServer({ name: 'confluence-shim', version: '0.2.0' }, { capabilities: { tools: {}, prompts: {}, resources: {} } });
 
 	mcp.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: [] }));
 	mcp.setRequestHandler(ListResourcesRequestSchema, async () => ({ resources: [] }));
