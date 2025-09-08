@@ -90,6 +90,7 @@ export async function startJiraShim(opts: JiraShimOptions) {
 
 		const transport = new SSEServerTransport('jira/messages', res);
 		transports.set(transport.sessionId, transport);
+		console.log('[jira-shim] SSE session created:', transport.sessionId, 'total:', transports.size);
 
 		// Manual immediate endpoint emit BEFORE mcp.connect to avoid clients waiting 60s for SDK-driven emit
 		try {
@@ -108,6 +109,7 @@ export async function startJiraShim(opts: JiraShimOptions) {
 		transport.onclose = () => {
 			clearInterval(heartbeat);
 			transports.delete(transport.sessionId);
+			console.log('[jira-shim] SSE session closed:', transport.sessionId, 'remaining:', transports.size);
 		};
 		try {
 			await mcp.connect(transport);
@@ -124,10 +126,16 @@ export async function startJiraShim(opts: JiraShimOptions) {
 			else if (keys.length > 1) {
 				sid = keys[keys.length - 1];
 				console.warn('[jira-shim] POST without sessionId; picked last session', sid, 'from', keys);
-			} else { res.status(404).end(); return; }
+			} else { 
+				console.error('[jira-shim] POST /messages: no sessionId and no active transports');
+				res.status(404).end(); return; 
+			}
 		}
 		const transport = transports.get(sid);
-		if (!transport) { res.status(404).end(); return; }
+		if (!transport) { 
+			console.error('[jira-shim] POST /messages: sessionId', sid, 'not found in', [...transports.keys()]);
+			res.status(404).end(); return; 
+		}
 		const raw = (req.body as Buffer | undefined)?.toString('utf-8');
 		
 		// Fast-path initialize to prevent 60s timeout
@@ -135,6 +143,7 @@ export async function startJiraShim(opts: JiraShimOptions) {
 			try {
 				const msg = JSON.parse(raw);
 				if (msg && msg.method === 'initialize' && typeof msg.id !== 'undefined') {
+					console.log('[jira-shim] Fast-path initialize response for session', sid);
 					res.json({
 						jsonrpc: '2.0',
 						id: msg.id,
