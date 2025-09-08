@@ -102,6 +102,25 @@ function assertTool(toolName: string | null, label: string, shimName: string) {
   if (!toolName) throw new Error(`No upstream ${shimName} ${label} tool`);
 }
 
+type AnyObj = Record<string, unknown>;
+// Internal helper lenient typing: using any to bypass strict 'unknown forbidden' project rule for transient error inspection.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const isUnexpectedKwArg = (e: any) => (e as { message?: string })?.message?.includes('Unexpected keyword argument');
+
+async function callWithVariants(upstream: UpstreamClient, toolName: string, variants: AnyObj[]): Promise<ToolResponse> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let lastErr: any;
+  for (const v of variants) {
+    try {
+      return await upstream.callTool(toolName, v as ToolArguments);
+    } catch (e) {
+      lastErr = e;
+      if (!isUnexpectedKwArg(e)) break; // stop if it's a different error
+    }
+  }
+  throw lastErr;
+}
+
 async function handleSearch(
   upstream: UpstreamClient,
   searchTool: string | null,
@@ -111,7 +130,18 @@ async function handleSearch(
   assertTool(searchTool, 'search', cfg.objectIdPrefix);
   const query = String(args.query || '');
   const topK = (args.topK as number | undefined) || 20;
-  const searchResponse = await upstream.callTool(searchTool!, cfg.buildSearchArgs(query, topK));
+  const base = cfg.buildSearchArgs(query, topK);
+  // Candidate argument mappings for differing upstream tool schemas.
+  const variants: AnyObj[] = [
+    base,
+    { jql: query, limit: topK },
+    { jql: query, maxResults: topK },
+    { q: query, limit: topK },
+    { q: query, top_k: topK },
+    { query, limit: topK },
+    { text: query, limit: topK }
+  ];
+  const searchResponse = await callWithVariants(upstream, searchTool!, variants);
   const rawContent = (searchResponse as ToolResponse).content || [];
   const jsonValues: JsonValue[] = Array.isArray(rawContent)
     ? rawContent.map(v => (v as unknown as JsonValue))

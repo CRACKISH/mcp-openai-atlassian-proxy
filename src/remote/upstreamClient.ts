@@ -229,12 +229,21 @@ private async notify(method: string, params?: JsonObject): Promise<void> {
 	 * @returns upstream tool response content array wrapper
 	 */
 	public async callTool(name: string, args: ToolArguments): Promise<ToolResponse> {
-		const response = await this.request('tools/call', { name: name as unknown as JsonValue, arguments: args as JsonValue });
-		// Expect result.content like SDK. If structure differs, wrap gracefully.
-		const result = response.result as JsonObject | undefined;
+		const response = await this.callToolRaw(name, args);
+		if ((response as { error?: JsonObject }).error) {
+			// Surface JSON-RPC tool error as exception so caller can adapt.
+			const err = (response as { error: { message?: string; code?: number } }).error;
+			throw new Error(err.message || 'upstream tool error');
+		}
+		const result = (response as { result?: JsonObject }).result;
 		if (result && Array.isArray((result as JsonObject).content)) {
 			return { content: (result as JsonObject).content as JsonValue[] } as unknown as ToolResponse;
 		}
 		return { content: [] } as unknown as ToolResponse;
+	}
+
+	/** Raw JSON-RPC response (may include error field) */
+	public async callToolRaw(name: string, args: ToolArguments): Promise<JsonObject> {
+		return this.request('tools/call', { name: name as unknown as JsonValue, arguments: args as JsonValue });
 	}
 }
