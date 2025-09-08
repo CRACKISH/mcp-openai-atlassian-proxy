@@ -4,7 +4,7 @@ import { Server as MCPServer } from '@modelcontextprotocol/sdk/server/index.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { UpstreamClient } from '../remote/index.js';
-import { ContentPart, ToolArguments, ToolResponse, JsonValue } from '../types/index.js';
+import { ContentPart, ToolArguments, JsonValue } from '../types/index.js';
 
 export interface ShimOptions { port: number; upstreamUrl: string; upstreamClient?: UpstreamClient }
 
@@ -16,7 +16,10 @@ export interface ShimConfig {
   searchDescription: string; // description for search tool
   fetchDescription: string;  // description for fetch tool
   startupDelayMs?: number;   // optional delay before starting HTTP
-  // Predicates to discover upstream tool names
+  // Either provide static upstream tool names OR predicates to discover them
+  upstreamSearchTool?: string; // if set, used directly
+  upstreamGetTool?: string;    // if set, used directly
+  // Predicates (ignored if static names provided)
   searchToolPredicate: (toolNameLower: string) => boolean;
   getToolPredicate: (toolNameLower: string) => boolean;
   // Build upstream arguments
@@ -39,8 +42,8 @@ export async function startShim(config: ShimConfig, options: ShimOptions) {
   }
   await upstream.connectIfNeeded();
 
-  const searchTool = upstream.findToolName(n => config.searchToolPredicate(n));
-  const getTool = upstream.findToolName(n => config.getToolPredicate(n));
+  const searchTool = config.upstreamSearchTool || upstream.findToolName(n => config.searchToolPredicate(n));
+  const getTool = config.upstreamGetTool || upstream.findToolName(n => config.getToolPredicate(n));
 
   const mcp = new MCPServer(
     { name: config.name, version: config.version },
@@ -99,31 +102,9 @@ function normalizeToolCall(rawReq: object): { name: string; args: ToolArguments 
 }
 
 function assertTool(toolName: string | null, label: string, shimName: string) {
-  if (!toolName) throw new Error(`No upstream ${shimName} ${label} tool`);
+  if (!toolName) throw new Error(`Missing required upstream tool (${label}) for ${shimName}`);
 }
 
-type AnyObj = Record<string, unknown>;
-// Internal helper lenient typing: using any to bypass strict 'unknown forbidden' project rule for transient error inspection.
-// Treat both unexpected keyword and missing field errors (pydantic styles) as adaptable.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const isAdaptableArgError = (e: any) => {
-  const msg = (e as { message?: string })?.message || '';
-  return msg.includes('Unexpected keyword argument') || msg.includes('field required');
-};
-
-async function callWithVariants(upstream: UpstreamClient, toolName: string, variants: AnyObj[]): Promise<ToolResponse> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let lastErr: any;
-  for (const v of variants) {
-    try {
-      return await upstream.callTool(toolName, v as ToolArguments);
-    } catch (e) {
-      lastErr = e;
-  if (!isAdaptableArgError(e)) break; // stop if it's a different error
-    }
-  }
-  throw lastErr;
-}
 
 async function handleSearch(
   upstream: UpstreamClient,
@@ -134,22 +115,10 @@ async function handleSearch(
   assertTool(searchTool, 'search', cfg.objectIdPrefix);
   const query = String(args.query || '');
   const topK = (args.topK as number | undefined) || 20;
-  const base = cfg.buildSearchArgs(query, topK);
-  // Candidate argument mappings for differing upstream tool schemas.
-  const variants: AnyObj[] = [
-    base,
-    { jql: query, limit: topK },
-    { jql: query, maxResults: topK },
-    { q: query, limit: topK },
-    { q: query, top_k: topK },
-    { query, limit: topK },
-    { text: query, limit: topK }
-  ];
-  const searchResponse = await callWithVariants(upstream, searchTool!, variants);
-  const rawContent = (searchResponse as ToolResponse).content || [];
-  const jsonValues: JsonValue[] = Array.isArray(rawContent)
-    ? rawContent.map(v => (v as unknown as JsonValue))
-    : [];
+  const built = cfg.buildSearchArgs(query, topK);
+  const searchResponse = await upstream.callTool(searchTool!, built);
+  const rawContent = searchResponse.content || [];
+  const jsonValues: JsonValue[] = Array.isArray(rawContent) ? rawContent.map(v => v as unknown as JsonValue) : [];
   const ids = cfg.extractIds(jsonValues);
   return { content: [{ type: 'json', data: { objectIds: ids.map(id => `${cfg.objectIdPrefix}:${id}`) } }] };
 }
@@ -177,22 +146,10 @@ async function fetchOne(
   cfg: ShimConfig
 ) {
   const id = rawObjectId.replace(new RegExp(`^${cfg.objectIdPrefix}:`, 'i'), '');
-  const baseArgs = cfg.buildFetchArgs(id);
-  const variants: AnyObj[] = [
-    baseArgs,
-    { id },
-    { key: id },
-    { issueKey: id },
-    { idOrKey: id },
-    { pageId: id },
-    { ids: [id] },
-    { objectIds: [id] }
-  ];
-  const resp = await callWithVariants(upstream, tool, variants);
+  const args = cfg.buildFetchArgs(id);
+  const resp = await upstream.callTool(tool, args);
   const rawContent = resp.content || [];
-  const jsonValues: JsonValue[] = Array.isArray(rawContent)
-    ? rawContent.map(v => (v as unknown as JsonValue))
-    : [];
+  const jsonValues: JsonValue[] = Array.isArray(rawContent) ? rawContent.map(v => v as unknown as JsonValue) : [];
   const parsed = cfg.parseFetched(jsonValues);
   return { objectId: `${cfg.objectIdPrefix}:${id}`, type: cfg.resourceType, contentType: 'application/json', content: parsed ?? null };
 }

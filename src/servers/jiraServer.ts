@@ -13,10 +13,14 @@ export async function startJiraShim(options: JiraShimOptions) {
 		searchDescription: 'Search Jira issues; returns { objectIds: ["jira:KEY"] }',
 		fetchDescription: 'Fetch Jira issues by keys returned from search()',
 		startupDelayMs: 1000,
-		searchToolPredicate: n => n.includes('jira') && (n.includes('search') || n.includes('jql')),
-		getToolPredicate: n => n.includes('jira') && (n.includes('get') || n.includes('issue')),
-		buildSearchArgs: (query, topK) => ({ query: query as JsonValue, jql: query as JsonValue, maxResults: topK || 20 }),
-		buildFetchArgs: id => ({ key: id, issueKey: id, idOrKey: id }),
+		// Static upstream tool names (no discovery)
+		upstreamSearchTool: 'jira_search', // static upstream name
+		upstreamGetTool: 'jira_get_issue',
+		// Dummy predicates retained only to satisfy typing (never used because static names provided)
+		searchToolPredicate: () => false,
+		getToolPredicate: () => false,
+		buildSearchArgs: (query, topK) => ({ jql: query as JsonValue, limit: (topK || 20) as JsonValue }),
+		buildFetchArgs: id => ({ issue_key: id }),
 		extractIds: content => extractJiraKeys(content as unknown as any[]),
 		parseFetched: content => firstJson(content as unknown as any[])
 	}, options);

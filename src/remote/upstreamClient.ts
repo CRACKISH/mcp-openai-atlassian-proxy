@@ -71,7 +71,20 @@ private async connectOnce(): Promise<void> {
 	const list = await this.request('tools/list', {});
 	const toolsField = (list.result as JsonObject | undefined)?.tools;
 	const toolsArr = Array.isArray(toolsField) ? toolsField : [];
-	this.tools = toolsArr.filter(v => typeof v === 'object' && v !== null && 'name' in (v as JsonObject)).map(v => ({ name: String((v as JsonObject).name) }));
+	this.tools = toolsArr.filter(v => typeof v === 'object' && v !== null && 'name' in (v as JsonObject)).map(v => ({
+		name: String((v as JsonObject).name),
+		description: typeof (v as JsonObject).description === 'string' ? String((v as JsonObject).description) : undefined
+	}));
+	for (const t of toolsArr) {
+		try {
+			const name = String((t as JsonObject).name || '');
+			const desc = (t as JsonObject).description ? ` ${(t as JsonObject).description}` : '';
+			// Some servers may include inputSchema; log keys if present.
+			const schema = (t as JsonObject).inputSchema as JsonObject | undefined;
+			const schemaKeys = schema && typeof schema === 'object' ? Object.keys(schema as JsonObject).slice(0, 10) : [];
+			this.log(`[upstream] tool ${name}${desc} schemaKeys=${schemaKeys.join(',')}`);
+		} catch { /* ignore logging errors */ }
+	}
 	this.connected = true;
 }
 
