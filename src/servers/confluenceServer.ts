@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { Server as MCPServer } from '@modelcontextprotocol/sdk/server/index.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
-import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { ListToolsRequestSchema, CallToolRequestSchema, ListPromptsRequestSchema, ListResourcesRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { UpstreamClient } from '../remote/index.js';
 import { ToolArguments } from '../types/index.js';
 
@@ -12,10 +12,13 @@ const CONF_SEARCH = 'confluence_search';
 const CONF_GET = 'confluence_get_page';
 
 export async function startConfluenceShim(opts: ConfluenceShimOptions) {
-	const upstream = opts.upstreamClient ?? new UpstreamClient({ remoteUrl: opts.upstreamUrl });
+	const upstream = opts.upstreamClient ?? new UpstreamClient({ remoteUrl: opts.upstreamUrl, monitorTools: [CONF_SEARCH, CONF_GET] });
 	await upstream.connectIfNeeded();
 
 	const mcp = new MCPServer({ name: 'confluence-shim', version: '0.2.0' }, { capabilities: { tools: {} } });
+
+	mcp.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: [] }));
+	mcp.setRequestHandler(ListResourcesRequestSchema, async () => ({ resources: [] }));
 
 	mcp.setRequestHandler(ListToolsRequestSchema, async () => {
 		const tools = upstream.listTools();
@@ -54,10 +57,23 @@ export async function startConfluenceShim(opts: ConfluenceShimOptions) {
 	app.get('/healthz', (_req, res) => res.json({ ok: true, upstream: opts.upstreamUrl, search: CONF_SEARCH, fetch: CONF_GET }));
 
 	app.get('/sse', async (_req, res) => {
+		res.setHeader('Content-Type', 'text/event-stream');
+		res.setHeader('Cache-Control', 'no-cache');
+		res.setHeader('Connection', 'keep-alive');
+		res.setHeader('X-Accel-Buffering', 'no');
+
 		const transport = new SSEServerTransport('confluence/messages', res);
 		transports.set(transport.sessionId, transport);
-		transport.onclose = () => transports.delete(transport.sessionId);
-		try { await mcp.connect(transport); } catch { transports.delete(transport.sessionId); }
+
+		const heartbeat = setInterval(() => {
+			try { res.write(':ka\n\n'); } catch { /* ignore */ }
+		}, 15000);
+
+		transport.onclose = () => {
+			clearInterval(heartbeat);
+			transports.delete(transport.sessionId);
+		};
+		try { await mcp.connect(transport); } catch { clearInterval(heartbeat); transports.delete(transport.sessionId); }
 	});
 
 	app.post('/messages', express.raw({ type: 'application/json', limit: '4mb' }), async (req, res) => {

@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { Server as MCPServer } from '@modelcontextprotocol/sdk/server/index.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
-import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { ListToolsRequestSchema, CallToolRequestSchema, ListPromptsRequestSchema, ListResourcesRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { UpstreamClient } from '../remote/index.js';
 import { ToolArguments } from '../types/index.js';
 
@@ -13,10 +13,14 @@ const JIRA_SEARCH = 'jira_search';
 const JIRA_GET = 'jira_get_issue';
 
 export async function startJiraShim(opts: JiraShimOptions) {
-	const upstream = opts.upstreamClient ?? new UpstreamClient({ remoteUrl: opts.upstreamUrl });
+	const upstream = opts.upstreamClient ?? new UpstreamClient({ remoteUrl: opts.upstreamUrl, monitorTools: [JIRA_SEARCH, JIRA_GET] });
 	await upstream.connectIfNeeded();
 
 	const mcp = new MCPServer({ name: 'jira-shim', version: '0.2.0' }, { capabilities: { tools: {} } });
+
+	// respond with empty lists instead of method-not-found
+	mcp.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: [] }));
+	mcp.setRequestHandler(ListResourcesRequestSchema, async () => ({ resources: [] }));
 
 	mcp.setRequestHandler(ListToolsRequestSchema, async () => {
 		const tools = upstream.listTools();
@@ -55,10 +59,25 @@ export async function startJiraShim(opts: JiraShimOptions) {
 	app.get('/healthz', (_req, res) => res.json({ ok: true, upstream: opts.upstreamUrl, search: JIRA_SEARCH, fetch: JIRA_GET }));
 
 	app.get('/sse', async (_req, res) => {
+		// explicit SSE headers (defensive for proxies)
+		res.setHeader('Content-Type', 'text/event-stream');
+		res.setHeader('Cache-Control', 'no-cache');
+		res.setHeader('Connection', 'keep-alive');
+		res.setHeader('X-Accel-Buffering', 'no');
+
 		const transport = new SSEServerTransport('jira/messages', res); // prefixed endpoint for client POSTs
 		transports.set(transport.sessionId, transport);
-		transport.onclose = () => transports.delete(transport.sessionId);
-		try { await mcp.connect(transport); } catch { transports.delete(transport.sessionId); }
+
+		// heartbeat every 15s
+		const heartbeat = setInterval(() => {
+			try { res.write(':ka\n\n'); } catch { /* ignore */ }
+		}, 15000);
+
+		transport.onclose = () => {
+			clearInterval(heartbeat);
+			transports.delete(transport.sessionId);
+		};
+		try { await mcp.connect(transport); } catch { clearInterval(heartbeat); transports.delete(transport.sessionId); }
 	});
 
 	app.post('/messages', express.raw({ type: 'application/json', limit: '4mb' }), async (req, res) => {

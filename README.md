@@ -1,136 +1,115 @@
-# MCP OpenAI Atlassian Proxy
+## Atlassian MCP Passthrough (Jira + Confluence)
 
-![CI](https://github.com/CRACKISH/mcp-openai-atlassian-proxy/actions/workflows/docker-build-push.yml/badge.svg)
+Minimal dual MCP shim that exposes only two stable tool names per product:
 
-Dual shim (Jira + Confluence) that connects to a single upstream Atlassian MCP server (e.g. `sooperset/mcp-atlassian`) and re‑exposes a minimal, opinionated tool surface for OpenAI / other MCP clients.
+Jira: `search`, `fetch`
+Confluence: `search`, `fetch`
 
-Current status: Stable single-path (no legacy / debug modes) Jira + Confluence `search` + `fetch`; strict typing (no `any`/`unknown` leaks) and clean output.
+Each is a direct passthrough to fixed upstream tools:
 
-## Features
+| Shim Tool         | Upstream Tool         |
+| ----------------- | --------------------- |
+| jira:search       | `jira_search`         |
+| jira:fetch        | `jira_get_issue`      |
+| confluence:search | `confluence_search`   |
+| confluence:fetch  | `confluence_get_page` |
 
-- Single upstream MCP SSE connection reused by both shims
-- Jira shim (default :7100) exposes `search` + `fetch` (issues)
-- Confluence shim (default :7200) exposes `search` + `fetch` (pages)
-- No experimental probing / legacy fallbacks: only the new MCP spec (`initialize`, `notifications/initialized`, `tools/list`, `tools/call`)
-- Strong JSON value model (no `any` / `unknown` leaks)
-- ESLint + Prettier + strict typing
+No wrapping of responses. Arguments + schemas are forwarded exactly as provided by the upstream Atlassian MCP server. Output content array is returned unchanged.
 
-## Tech Stack
+### Current State
 
-- TypeScript (Node.js >= 20)
-- Model Context Protocol SDK (@modelcontextprotocol/sdk)
-- Express + SSE transport
-- ESLint (flat config) + Prettier (tabs width 4)
+Version: 0.2.0 (breaking simplification – removed legacy base shim, resource/objectId abstraction, transparent mode, dynamic probing logic).
 
-## Scripts
+### Why
 
-| Command                | Description                   |
-| ---------------------- | ----------------------------- |
-| `npm run dev`          | Run in development (ts-node)  |
-| `npm run build`        | Compile TypeScript to `dist/` |
-| `npm start`            | Run compiled build            |
-| `npm run lint`         | Lint sources                  |
-| `npm run lint:fix`     | Auto-fix lint issues          |
-| `npm run format`       | Prettier write                |
-| `npm run format:check` | Prettier check                |
-| `npm run typecheck`    | Type check only               |
+You only need the original tool contracts but under short stable names so AI clients can rely on a tiny surface. Everything else (all other upstream tools) is hidden to reduce noise and prompt token usage.
 
-## Configuration
+---
 
-Environment variables (all string values):
+## Quick Start
 
-| Variable               | Required | Default | Description                                                                    |
-| ---------------------- | -------- | ------- | ------------------------------------------------------------------------------ |
-| `UPSTREAM_MCP_URL`     | yes      | -       | Full URL to upstream Atlassian MCP SSE endpoint (e.g. `https://host:7000/sse`) |
-| `JIRA_SHIM_PORT`       | no       | `7100`  | Port for Jira shim server                                                      |
-| `CONFLUENCE_SHIM_PORT` | no       | `7200`  | Port for Confluence shim server                                                |
+```bash
+npm install
+cp .env.example .env   # set UPSTREAM_MCP_URL=https://your-upstream-host:7000/sse
+npm run build
+npm start
+```
+
+Health:
+
+```
+GET http://localhost:7100/healthz   # jira
+GET http://localhost:7200/healthz   # confluence
+```
+
+### Required Env
+
+| Var                | Description                                                            |
+| ------------------ | ---------------------------------------------------------------------- |
+| `UPSTREAM_MCP_URL` | Full SSE endpoint of upstream MCP (accepts with/without trailing /sse) |
+
+Optional:
+
+| Var                    | Default | Description          |
+| ---------------------- | ------- | -------------------- |
+| `JIRA_SHIM_PORT`       | 7100    | Jira shim port       |
+| `CONFLUENCE_SHIM_PORT` | 7200    | Confluence shim port |
 
 Example `.env`:
 
 ```env
-UPSTREAM_MCP_URL=https://your-atlassian-mcp:7000/sse
+UPSTREAM_MCP_URL=https://mcp-atlassian.internal:7000/sse
 JIRA_SHIM_PORT=7100
 CONFLUENCE_SHIM_PORT=7200
 ```
 
-## Running
+---
 
-### Dev (ts-node)
+## Behavior
 
-```bash
-npm install
-cp .env.example .env   # adjust values
-npm run dev
-```
+1. On startup each shim establishes its own upstream SSE session.
+2. `tools/list` returns exactly two tools; their `inputSchema` is the upstream schema (sanitized description).
+3. `tools/call` forwards arguments verbatim; returned `content` is not altered.
+4. Logging: only the four proxied upstream tools are logged (sanitized single line).
+5. No retries/adaptive variants – if upstream rejects, error text is returned directly.
 
-Health checks:
+### Not Included Anymore
 
-- Jira: http://localhost:7100/healthz
-- Confluence: http://localhost:7200/healthz
+| Removed                                      | Reason                                 |
+| -------------------------------------------- | -------------------------------------- |
+| Resource wrapping (`objectIds`, `resources`) | Unnecessary indirection                |
+| Dynamic tool discovery predicates            | Fixed upstream tool names now known    |
+| Transparent universal shim                   | Out of scope for minimal dual setup    |
+| Base generic shim abstraction                | Added complexity, no remaining benefit |
 
-### Production build
+---
 
-```bash
-npm run build
-UPSTREAM_MCP_URL=... node dist/index.js
-```
-
-### Docker
-
-Build image:
+## Docker
 
 ```bash
-docker build -t mcp-atlassian-proxy:local .
+docker build -t mcp-atlassian-proxy:0.2.0 .
+docker run --rm -e UPSTREAM_MCP_URL="https://your-upstream:7000/sse" -p 7100:7100 -p 7200:7200 mcp-atlassian-proxy:0.2.0
 ```
 
-Run container:
-
-```bash
-docker run --rm \
-	-e UPSTREAM_MCP_URL="https://your-atlassian-mcp:7000/sse" \
-	-e JIRA_SHIM_PORT=7100 \
-	-e CONFLUENCE_SHIM_PORT=7200 \
-	-p 7100:7100 -p 7200:7200 \
-	mcp-atlassian-proxy:local
-```
-
-Verify:
-
-```bash
-curl http://localhost:7100/healthz
-curl http://localhost:7200/healthz
-```
-
-### Tool Contracts
-
-Jira `search` -> `{ objectIds: ["jira:ABC-123", ...] }`
-
-Jira `fetch` -> `{ resources: [{ objectId, type: 'jira_issue', contentType, content }] }`
-
-Confluence `search` -> `{ objectIds: ["confluence:12345", ...] }`
-
-Confluence `fetch` -> `{ resources: [{ objectId, type: 'confluence_page', contentType, content }] }`
-
-## Roadmap (next)
-
-1. Authentication (PAT / OAuth pluggable module)
-2. Structured logging + log level
-3. Env schema validation
-4. Test suite (unit + integration)
-5. Optional caching layer
-6. Additional Atlassian surfaces (Crucible, Bitbucket)
+---
 
 ## Development
 
-Install deps:
+| Script              | Purpose            |
+| ------------------- | ------------------ |
+| `npm run dev`       | ts-node dev mode   |
+| `npm run build`     | build to `dist/`   |
+| `npm start`         | run compiled shims |
+| `npm run lint`      | lint               |
+| `npm run typecheck` | type-only check    |
 
-```bash
-npm install
-```
+---
 
-Dev run (auto TS): `npm run dev`
+## Versioning
 
-Build + start: `npm run build && npm start`
+0.2.0 = Breaking cleanup. If you previously relied on `objectIds`/`resources`, migrate to using upstream schemas directly (same args you would send to original Atlassian MCP tools).
+
+---
 
 ## License
 
