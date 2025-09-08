@@ -14,7 +14,11 @@ const CONF_GET = 'confluence_get_page';
 export async function startConfluenceShim(opts: ConfluenceShimOptions) {
 	const startDelay = Number(process.env.SHIM_START_DELAY_MS || 2000);
 	if (startDelay > 0) await new Promise(r => setTimeout(r, startDelay));
-	const upstream = opts.upstreamClient ?? new UpstreamClient({ remoteUrl: opts.upstreamUrl, monitorTools: [CONF_SEARCH, CONF_GET] });
+	const upstream = opts.upstreamClient ?? new UpstreamClient({ 
+		remoteUrl: opts.upstreamUrl, 
+		monitorTools: [CONF_SEARCH, CONF_GET],
+		logPrefix: '[confluence-upstream]'
+	});
 	await upstream.connectIfNeeded();
 
 	const mcp = new MCPServer({ name: 'confluence-shim', version: '0.2.0' }, { capabilities: { tools: {}, prompts: {}, resources: {} } });

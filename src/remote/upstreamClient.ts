@@ -12,7 +12,13 @@ const REQUEST_TIMEOUT_MS = 30_000; // increased to reduce spurious timeouts on s
 const RETRY_DELAY_DEFAULT_MS = 3000;
 
 export interface UpstreamToolInfo { name: string; description?: string; inputSchema?: JsonObject }
-export interface UpstreamClientOptions { remoteUrl: string; retryDelayMs?: number; logger?: (line: string, ...rest: string[]) => void; monitorTools?: string[] }
+export interface UpstreamClientOptions { 
+	remoteUrl: string; 
+	retryDelayMs?: number; 
+	logger?: (line: string, ...rest: string[]) => void; 
+	monitorTools?: string[];
+	logPrefix?: string;
+}
 
 export class UpstreamClient {
 	public readonly options: UpstreamClientOptions;
@@ -42,7 +48,10 @@ export class UpstreamClient {
 		return this.connectPromise;
 	}
 
-	private log(msg: string, ...rest: string[]): void { (this.options.logger || console.log)(msg, ...rest); }
+	private log(msg: string, ...rest: string[]): void { 
+		const prefix = this.options.logPrefix || '[upstream]';
+		(this.options.logger || console.log)(`${prefix} ${msg}`, ...rest); 
+	}
 
 	private async connectOnce(): Promise<void> {
 		// Extract base URL without /sse suffix but keep path prefix 
@@ -52,7 +61,7 @@ export class UpstreamClient {
 		await this.waitForEndpoint();
 		if (!this.messageTemplate) throw new Error('No endpoint event from upstream');
 		await this.request('initialize', { protocolVersion: PROTOCOL_VERSION as JsonValue, capabilities: {} as JsonValue, clientInfo: INIT_INFO as unknown as JsonValue } as JsonObject);
-		try { await this.notify('notifications/initialized'); } catch (e) { this.log('[upstream] notify failed', (e as Error).message); }
+		try { await this.notify('notifications/initialized'); } catch (e) { this.log('notify failed', (e as Error).message); }
 		await this.loadTools();
 		this.logWhitelistedTools();
 		this.connected = true;
@@ -64,10 +73,10 @@ export class UpstreamClient {
 		this.sseAbort?.abort();
 		const ac = new AbortController();
 		this.sseAbort = ac;
-		this.log(`[upstream] opening SSE ${sseUrl}`);
+		this.log(`opening SSE ${sseUrl}`);
 		const res = await fetch(sseUrl, { signal: ac.signal, headers: { Accept: 'text/event-stream' } });
 		if (!res.ok || !res.body) throw new Error(`SSE connect failed (${res.status})`);
-		void this.consumeSse(res.body.getReader()).catch(e => this.log('[upstream] SSE reader error', (e as Error).message));
+		void this.consumeSse(res.body.getReader()).catch(e => this.log('SSE reader error', (e as Error).message));
 	}
 
 	private async waitForEndpoint(): Promise<void> {
@@ -88,7 +97,7 @@ export class UpstreamClient {
 			}
 		} finally {
 			this.connected = false;
-			this.log('[upstream] SSE closed');
+			this.log('SSE closed');
 		}
 	}
 
@@ -122,7 +131,7 @@ export class UpstreamClient {
 		if (/^\/sse\?/i.test(path)) { 
 			const original = path; 
 			path = path.replace(/^\/sse\?/i, '/messages?'); 
-			this.log(`[upstream] rewrote endpoint '${original}' -> '${path}'`); 
+			this.log(`rewrote endpoint '${original}' -> '${path}'`); 
 		}
 		const m = path.match(/(?:session[_-]?id|sessionId)=([A-Za-z0-9_-]+)/);
 		if (m) { 
@@ -138,9 +147,9 @@ export class UpstreamClient {
 				this.messageTemplate = this.base + templPath;
 			}
 			
-			this.log(`[upstream] endpoint set: ${this.messageTemplate}`);
+			this.log(`endpoint set: ${this.messageTemplate}`);
 		} else {
-			this.log('[upstream] endpoint missing sessionId:', payload);
+			this.log('endpoint missing sessionId:', payload);
 		}
 	}
 
@@ -155,7 +164,7 @@ export class UpstreamClient {
 			this.pending.delete(key);
 			clearTimeout(pending.timer);
 			pending.resolve(json);
-		} catch (e) { this.log('[upstream] sse parse error', (e as Error).message); }
+		} catch (e) { this.log('sse parse error', (e as Error).message); }
 	}
 
 	private async loadTools(): Promise<void> {
@@ -175,7 +184,7 @@ export class UpstreamClient {
 			if (!this.monitorSet.has(t.name.toLowerCase())) continue;
 			try {
 				const schemaKeys = t.inputSchema ? Object.keys(t.inputSchema).slice(0, 10) : [];
-				this.log(`[upstream] tool ${t.name}${t.description ? ' - ' + t.description : ''} schemaKeys=${schemaKeys.join(',')}`);
+				this.log(`tool ${t.name}${t.description ? ' - ' + t.description : ''} schemaKeys=${schemaKeys.join(',')}`);
 			} catch { /* ignore */ }
 		}
 	}
@@ -203,7 +212,7 @@ export class UpstreamClient {
 	private async connectLoop(): Promise<void> {
 		for (;;) {
 			try { await this.connectOnce(); return; }
-			catch (e) { this.log(`[upstream] connect failed: ${(e as { message?: string }).message || String(e)}`); await this.delay(this.options.retryDelayMs!); }
+			catch (e) { this.log(`connect failed: ${(e as { message?: string }).message || String(e)}`); await this.delay(this.options.retryDelayMs!); }
 		}
 	}
 

@@ -16,7 +16,11 @@ export async function startJiraShim(opts: JiraShimOptions) {
 	// small startup delay to let upstream come up (race mitigation)
 	const startDelay = Number(process.env.SHIM_START_DELAY_MS || 2000);
 	if (startDelay > 0) await new Promise(r => setTimeout(r, startDelay));
-	const upstream = opts.upstreamClient ?? new UpstreamClient({ remoteUrl: opts.upstreamUrl, monitorTools: [JIRA_SEARCH, JIRA_GET] });
+	const upstream = opts.upstreamClient ?? new UpstreamClient({ 
+		remoteUrl: opts.upstreamUrl, 
+		monitorTools: [JIRA_SEARCH, JIRA_GET],
+		logPrefix: '[jira-upstream]'
+	});
 	await upstream.connectIfNeeded();
 
 	const mcp = new MCPServer({ name: 'jira-shim', version: '0.2.0' }, { capabilities: { tools: {}, prompts: {}, resources: {} } });
