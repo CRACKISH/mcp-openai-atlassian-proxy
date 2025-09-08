@@ -142,26 +142,6 @@ export async function startJiraShim(opts: JiraShimOptions) {
 		}
 		const raw = (req.body as Buffer | undefined)?.toString('utf-8');
 		
-		// Fast-path initialize to prevent 60s timeout
-		if (raw) {
-			try {
-				const msg = JSON.parse(raw);
-				if (msg && msg.method === 'initialize' && typeof msg.id !== 'undefined') {
-					console.log('[jira-shim] Fast-path initialize response for session', sid);
-					res.json({
-						jsonrpc: '2.0',
-						id: msg.id,
-						result: {
-							protocolVersion: msg.params?.protocolVersion || '2025-06-18',
-							capabilities: { tools: {}, prompts: {}, resources: {} },
-							serverInfo: { name: 'jira-shim', version: '0.2.0' }
-						}
-					});
-					return;
-				}
-			} catch { /* parse error, fall through */ }
-		}
-		
 		await (transport as unknown as { handlePostMessage: (r: express.Request, s: express.Response, body?: string) => Promise<void> })
 			.handlePostMessage(req, res, raw);
 	});
