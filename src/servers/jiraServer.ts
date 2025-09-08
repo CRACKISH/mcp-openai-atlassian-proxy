@@ -19,7 +19,7 @@ export async function startJiraShim(options: JiraShimOptions) {
 		// Dummy predicates retained only to satisfy typing (never used because static names provided)
 		searchToolPredicate: () => false,
 		getToolPredicate: () => false,
-		buildSearchArgs: (query, topK) => ({ jql: query as JsonValue, limit: (topK || 20) as JsonValue }),
+		buildSearchArgs: (query, topK) => ({ jql: (query || '') as JsonValue, limit: (topK || 20) as JsonValue }),
 		buildFetchArgs: id => ({ issue_key: id }),
 		extractIds: content => extractJiraKeys(content as unknown as any[]),
 		parseFetched: content => firstJson(content as unknown as any[])

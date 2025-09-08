@@ -3,6 +3,7 @@ import { ToolResponse, ToolArguments, JsonObject, JsonValue } from '../types/ind
 export interface UpstreamToolInfo {
 	name: string;
 	description?: string;
+	inputSchema?: JsonObject; // keep original schema for transparent pass-through
 }
 
 export interface UpstreamClientOptions {
@@ -73,7 +74,8 @@ private async connectOnce(): Promise<void> {
 	const toolsArr = Array.isArray(toolsField) ? toolsField : [];
 	this.tools = toolsArr.filter(v => typeof v === 'object' && v !== null && 'name' in (v as JsonObject)).map(v => ({
 		name: String((v as JsonObject).name),
-		description: typeof (v as JsonObject).description === 'string' ? String((v as JsonObject).description) : undefined
+		description: typeof (v as JsonObject).description === 'string' ? String((v as JsonObject).description) : undefined,
+		inputSchema: (v as JsonObject).inputSchema as JsonObject | undefined
 	}));
 	for (const t of toolsArr) {
 		try {
