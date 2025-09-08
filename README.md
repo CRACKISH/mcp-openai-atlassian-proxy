@@ -1,11 +1,13 @@
-## Atlassian MCP Passthrough (Jira + Confluence)
+## Atlassian MCP OpenAI Proxy (Jira + Confluence)
 
-Minimal dual MCP shim that exposes only two stable tool names per product:
+Ultra‑thin dual port proxy that makes an existing Atlassian MCP server (e.g. `mcp-atlassian`) look minimal & stable to OpenAI MCP clients.
+
+Per product it exposes only two tool names:
 
 Jira: `search`, `fetch`
 Confluence: `search`, `fetch`
 
-Each is a direct passthrough to fixed upstream tools:
+Mapped 1:1 to upstream fixed tools:
 
 | Shim Tool         | Upstream Tool         |
 | ----------------- | --------------------- |
@@ -14,15 +16,20 @@ Each is a direct passthrough to fixed upstream tools:
 | confluence:search | `confluence_search`   |
 | confluence:fetch  | `confluence_get_page` |
 
-No wrapping of responses. Arguments + schemas are forwarded exactly as provided by the upstream Atlassian MCP server. Output content array is returned unchanged.
+Everything else is hidden. JSON-RPC payloads are forwarded almost verbatim; only two transformations happen:
+
+1. Upstream `tools/list` response is filtered & tool names rewritten to `search` / `fetch`.
+2. Outgoing `tools/call` with `search` / `fetch` are renamed back to upstream tool identifiers.
+
+No local MCP server instance, no additional JSON-RPC logic — just SSE + POST relay with tiny name rewrite.
 
 ### Current State
 
-Version: 0.2.0 (breaking simplification – removed legacy base shim, resource/objectId abstraction, transparent mode, dynamic probing logic).
+Version: 0.3.0 (pure transparent proxy refactor; removed embedded MCP SDK and custom upstream client class).
 
 ### Why
 
-You only need the original tool contracts but under short stable names so AI clients can rely on a tiny surface. Everything else (all other upstream tools) is hidden to reduce noise and prompt token usage.
+Goal: keep a tiny stable surface for AI agents while delegating everything to the authoritative upstream; cut token noise and avoid unexpected extra tools.
 
 ---
 
@@ -32,7 +39,7 @@ You only need the original tool contracts but under short stable names so AI cli
 npm install
 cp .env.example .env   # set UPSTREAM_MCP_URL=https://your-upstream-host:7000/sse
 npm run build
-npm start
+npm start  # starts :7100 (jira) and :7200 (confluence)
 ```
 
 Health:
@@ -67,28 +74,29 @@ CONFLUENCE_SHIM_PORT=7200
 
 ## Behavior
 
-1. On startup each shim establishes its own upstream SSE session.
-2. `tools/list` returns exactly two tools; their `inputSchema` is the upstream schema (sanitized description).
-3. `tools/call` forwards arguments verbatim; returned `content` is not altered.
-4. Logging: only the four proxied upstream tools are logged (sanitized single line).
-5. No retries/adaptive variants – if upstream rejects, error text is returned directly.
+1. Client opens `GET /sse` (jira or confluence port). Proxy simultaneously opens upstream `/sse`.
+2. On upstream `endpoint` event we emit our own `endpoint` pointing to local `/messages?sessionId=...`.
+3. All JSON events are forwarded; when a payload looks like `tools/list` response its `result.tools` is filtered & renamed.
+4. Client `POST /messages` JSON-RPC: if `method=tools/call` and `params.name` is `search|fetch` it is rewritten to upstream name; otherwise untouched.
+5. Responses flow back unchanged (except the earlier tool-list filtering).
+6. One local session = one upstream session; simple in-memory map, no persistence.
 
 ### Not Included Anymore
 
-| Removed                                      | Reason                                 |
-| -------------------------------------------- | -------------------------------------- |
-| Resource wrapping (`objectIds`, `resources`) | Unnecessary indirection                |
-| Dynamic tool discovery predicates            | Fixed upstream tool names now known    |
-| Transparent universal shim                   | Out of scope for minimal dual setup    |
-| Base generic shim abstraction                | Added complexity, no remaining benefit |
+| Removed                                  | Reason                                       |
+| ---------------------------------------- | -------------------------------------------- |
+| Embedded MCPServer / SDK layer           | Proxy does not need to re-implement MCP      |
+| Custom pending map JSON-RPC client       | Direct relay; upstream already handles it    |
+| Tool description sanitizing & truncation | Preserve original upstream wording           |
+| Session limiting flags                   | Simplified (one upstream per client session) |
 
 ---
 
 ## Docker
 
 ```bash
-docker build -t mcp-atlassian-proxy:0.2.0 .
-docker run --rm -e UPSTREAM_MCP_URL="https://your-upstream:7000/sse" -p 7100:7100 -p 7200:7200 mcp-atlassian-proxy:0.2.0
+docker build -t mcp-atlassian-proxy:0.3.0 .
+docker run --rm -e UPSTREAM_MCP_URL="https://your-upstream:7000/sse" -p 7100:7100 -p 7200:7200 mcp-atlassian-proxy:0.3.0
 ```
 
 ---
@@ -107,7 +115,7 @@ docker run --rm -e UPSTREAM_MCP_URL="https://your-upstream:7000/sse" -p 7100:710
 
 ## Versioning
 
-0.2.0 = Breaking cleanup. If you previously relied on `objectIds`/`resources`, migrate to using upstream schemas directly (same args you would send to original Atlassian MCP tools).
+0.3.0 = Pure proxy (no embedded SDK). If upgrading from 0.2.x nothing to change client‑side; behavior is identical except tool descriptions are no longer truncated.
 
 ---
 
