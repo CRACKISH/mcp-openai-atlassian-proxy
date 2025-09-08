@@ -180,19 +180,25 @@ function startHttpServer(
     console.log(`[${cfg.name}] connect #${id} ip=${ip} ua="${ua}"`);
     res.on('close', () => console.log(`[${cfg.name}] disconnect #${id}`));
     const transport = new SSEServerTransport('/sse', res);
-    await mcp.connect(transport);
+    // Register BEFORE connect to avoid race with first POST initialize
     transports.set(transport.sessionId, transport);
-    console.log(`[${cfg.name}] session ${transport.sessionId} established`);
-    // Remove when closed
+    console.log(`[${cfg.name}] pre-register session ${transport.sessionId}`);
     transport.onclose = () => {
       transports.delete(transport.sessionId);
       console.log(`[${cfg.name}] session ${transport.sessionId} closed`);
     };
+    try {
+      await mcp.connect(transport);
+      console.log(`[${cfg.name}] session ${transport.sessionId} activated`);
+    } catch (e) {
+      transports.delete(transport.sessionId);
+      console.error(`[${cfg.name}] connect failed for session ${transport.sessionId}:`, (e as Error).message);
+    }
   });
 
   // Accept POST messages: /sse?sessionId=...
   app.post('/sse', express.raw({ type: 'application/json', limit: '4mb' }), async (req, res) => {
-    let sessionId = (req.query.sessionId as string) || '';
+    let sessionId = (req.query.sessionId as string) || (req.query.session_id as string) || '';
     // If no sessionId provided but exactly one active session exists, assume that one (helps some clients)
     if (!sessionId && transports.size === 1) {
       sessionId = [...transports.keys()][0];
@@ -214,6 +220,7 @@ function startHttpServer(
       // Cast to the minimal shape required by handlePostMessage without using 'any'
       const minimalReq = req as unknown as Request;
       const minimalRes = res as unknown as Response;
+      console.log(`[${cfg.name}] POST message session=${sessionId} bytes=${rawBody?.length ?? 0}`);
       await transport.handlePostMessage(minimalReq as never, minimalRes as never, rawBody);
     } catch (e) {
       console.error(`[${cfg.name}] post error session=${sessionId}:`, e);
