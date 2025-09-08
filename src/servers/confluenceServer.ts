@@ -61,9 +61,18 @@ export async function startConfluenceShim(opts: ConfluenceShimOptions) {
 		res.setHeader('Cache-Control', 'no-cache');
 		res.setHeader('Connection', 'keep-alive');
 		res.setHeader('X-Accel-Buffering', 'no');
+		try { res.write(':ok\n\n'); } catch { /* ignore */ }
+
+		if (process.env.SINGLE_SESSION && transports.size) {
+			for (const [id, old] of transports.entries()) {
+				try { (old as unknown as { close?: () => void }).close?.(); } catch { /* ignore */ }
+				transports.delete(id);
+			}
+		}
 
 		const transport = new SSEServerTransport('confluence/messages', res);
 		transports.set(transport.sessionId, transport);
+		if (process.env.DEBUG_SHIM) console.log('[confluence-shim][debug] open SSE session', transport.sessionId, 'total=', transports.size);
 
 		const heartbeat = setInterval(() => {
 			try { res.write(':ka\n\n'); } catch { /* ignore */ }
@@ -77,7 +86,15 @@ export async function startConfluenceShim(opts: ConfluenceShimOptions) {
 	});
 
 	app.post('/messages', express.raw({ type: 'application/json', limit: '4mb' }), async (req, res) => {
-		const sid = (req.query.sessionId as string) || (req.query.session_id as string) || [...transports.keys()][0];
+		let sid = (req.query.sessionId as string) || (req.query.session_id as string);
+		if (!sid) {
+			const keys = [...transports.keys()];
+			if (keys.length === 1) sid = keys[0];
+			else if (keys.length > 1) {
+				sid = keys[keys.length - 1];
+				console.warn('[confluence-shim] POST without sessionId; picked last session', sid, 'from', keys);
+			} else { res.status(404).end(); return; }
+		}
 		const transport = transports.get(sid);
 		if (!transport) { res.status(404).end(); return; }
 		const raw = (req.body as Buffer | undefined)?.toString('utf-8');
