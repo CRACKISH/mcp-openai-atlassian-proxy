@@ -71,8 +71,6 @@ export async function startJiraShim(opts: JiraShimOptions) {
 		(res as unknown as { flushHeaders?: () => void }).flushHeaders?.();
 		// first byte to prevent idle timeouts before endpoint event
 		try { res.write(': open jira\n\n'); } catch { /* ignore */ }
-		const openTs = Date.now();
-		if (process.env.DEBUG_SHIM) console.log('[jira-shim][debug] SSE headers sent, first byte at', openTs);
 
 		// strict single session mode: reject new connection instead of silently closing old
 		if (process.env.STRICT_SINGLE_SESSION && transports.size) {
@@ -92,7 +90,15 @@ export async function startJiraShim(opts: JiraShimOptions) {
 
 		const transport = new SSEServerTransport('jira/messages', res);
 		transports.set(transport.sessionId, transport);
-		if (process.env.DEBUG_SHIM) console.log('[jira-shim][debug] open SSE session', transport.sessionId, 'total=', transports.size);
+
+		// Manual immediate endpoint emit BEFORE mcp.connect to avoid clients waiting 60s for SDK-driven emit
+		try {
+			const path = `/jira/messages?sessionId=${encodeURIComponent(transport.sessionId)}`;
+			res.write('event: endpoint\n');
+			res.write(`data: ${path}\n\n`);
+			// Force flush the endpoint event immediately
+			if (typeof (res as any).flush === 'function') (res as any).flush();
+		} catch { /* ignore */ }
 
 		// heartbeat every 15s
 		const heartbeat = setInterval(() => {
@@ -102,11 +108,9 @@ export async function startJiraShim(opts: JiraShimOptions) {
 		transport.onclose = () => {
 			clearInterval(heartbeat);
 			transports.delete(transport.sessionId);
-			if (process.env.DEBUG_SHIM) console.log('[jira-shim][debug] session closed', transport.sessionId, 'lifetimeMs=', Date.now() - openTs);
 		};
 		try {
 			await mcp.connect(transport);
-			if (process.env.DEBUG_SHIM) console.log('[jira-shim][debug] mcp.connect finished', transport.sessionId, 'after', Date.now() - openTs, 'ms');
 		} catch {
 			clearInterval(heartbeat); transports.delete(transport.sessionId);
 		}
@@ -125,6 +129,26 @@ export async function startJiraShim(opts: JiraShimOptions) {
 		const transport = transports.get(sid);
 		if (!transport) { res.status(404).end(); return; }
 		const raw = (req.body as Buffer | undefined)?.toString('utf-8');
+		
+		// Fast-path initialize to prevent 60s timeout
+		if (raw) {
+			try {
+				const msg = JSON.parse(raw);
+				if (msg && msg.method === 'initialize' && typeof msg.id !== 'undefined') {
+					res.json({
+						jsonrpc: '2.0',
+						id: msg.id,
+						result: {
+							protocolVersion: msg.params?.protocolVersion || '2025-06-18',
+							capabilities: { tools: {}, prompts: {}, resources: {} },
+							serverInfo: { name: 'jira-shim', version: '0.2.0' }
+						}
+					});
+					return;
+				}
+			} catch { /* parse error, fall through */ }
+		}
+		
 		await (transport as unknown as { handlePostMessage: (r: express.Request, s: express.Response, body?: string) => Promise<void> })
 			.handlePostMessage(req, res, raw);
 	});
