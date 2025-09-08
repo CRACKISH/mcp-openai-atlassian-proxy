@@ -63,7 +63,17 @@ export async function startConfluenceShim(opts: ConfluenceShimOptions) {
 		res.setHeader('Cache-Control', 'no-cache');
 		res.setHeader('Connection', 'keep-alive');
 		res.setHeader('X-Accel-Buffering', 'no');
-		try { res.write(':ok\n\n'); } catch { /* ignore */ }
+		(res as unknown as { flushHeaders?: () => void }).flushHeaders?.();
+		try { res.write(': open confluence\n\n'); } catch { /* ignore */ }
+		const openTs = Date.now();
+		if (process.env.DEBUG_SHIM) console.log('[confluence-shim][debug] SSE headers sent, first byte at', openTs);
+
+		if (process.env.STRICT_SINGLE_SESSION && transports.size) {
+			res.write('event: error\n');
+			res.write('data: another session active\n\n');
+			res.end();
+			return;
+		}
 
 		if (process.env.SINGLE_SESSION && transports.size) {
 			for (const [id, old] of transports.entries()) {
@@ -83,8 +93,12 @@ export async function startConfluenceShim(opts: ConfluenceShimOptions) {
 		transport.onclose = () => {
 			clearInterval(heartbeat);
 			transports.delete(transport.sessionId);
+			if (process.env.DEBUG_SHIM) console.log('[confluence-shim][debug] session closed', transport.sessionId, 'lifetimeMs=', Date.now() - openTs);
 		};
-		try { await mcp.connect(transport); } catch { clearInterval(heartbeat); transports.delete(transport.sessionId); }
+		try {
+			await mcp.connect(transport);
+			if (process.env.DEBUG_SHIM) console.log('[confluence-shim][debug] mcp.connect finished', transport.sessionId, 'after', Date.now() - openTs, 'ms');
+		} catch { clearInterval(heartbeat); transports.delete(transport.sessionId); }
 	});
 
 	app.post('/messages', express.raw({ type: 'application/json', limit: '4mb' }), async (req, res) => {

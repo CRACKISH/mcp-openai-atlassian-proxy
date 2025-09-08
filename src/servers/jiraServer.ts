@@ -67,7 +67,20 @@ export async function startJiraShim(opts: JiraShimOptions) {
 		res.setHeader('Cache-Control', 'no-cache');
 		res.setHeader('Connection', 'keep-alive');
 		res.setHeader('X-Accel-Buffering', 'no');
-		try { res.write(':ok\n\n'); } catch { /* ignore */ }
+		// flush headers early if supported
+		(res as unknown as { flushHeaders?: () => void }).flushHeaders?.();
+		// first byte to prevent idle timeouts before endpoint event
+		try { res.write(': open jira\n\n'); } catch { /* ignore */ }
+		const openTs = Date.now();
+		if (process.env.DEBUG_SHIM) console.log('[jira-shim][debug] SSE headers sent, first byte at', openTs);
+
+		// strict single session mode: reject new connection instead of silently closing old
+		if (process.env.STRICT_SINGLE_SESSION && transports.size) {
+			res.write('event: error\n');
+			res.write('data: another session active\n\n');
+			res.end();
+			return;
+		}
 
 		// optional single-session mode: close previous transports
 		if (process.env.SINGLE_SESSION && transports.size) {
@@ -89,8 +102,14 @@ export async function startJiraShim(opts: JiraShimOptions) {
 		transport.onclose = () => {
 			clearInterval(heartbeat);
 			transports.delete(transport.sessionId);
+			if (process.env.DEBUG_SHIM) console.log('[jira-shim][debug] session closed', transport.sessionId, 'lifetimeMs=', Date.now() - openTs);
 		};
-		try { await mcp.connect(transport); } catch { clearInterval(heartbeat); transports.delete(transport.sessionId); }
+		try {
+			await mcp.connect(transport);
+			if (process.env.DEBUG_SHIM) console.log('[jira-shim][debug] mcp.connect finished', transport.sessionId, 'after', Date.now() - openTs, 'ms');
+		} catch {
+			clearInterval(heartbeat); transports.delete(transport.sessionId);
+		}
 	});
 
 	app.post('/messages', express.raw({ type: 'application/json', limit: '4mb' }), async (req, res) => {
