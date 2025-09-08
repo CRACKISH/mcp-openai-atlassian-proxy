@@ -189,9 +189,15 @@ function startHttpServer(
 
   // Accept POST messages: /sse?sessionId=...
   app.post('/sse', express.raw({ type: 'application/json', limit: '4mb' }), async (req, res) => {
-    const sessionId = (req.query.sessionId as string) || '';
+    let sessionId = (req.query.sessionId as string) || '';
+    // If no sessionId provided but exactly one active session exists, assume that one (helps some clients)
+    if (!sessionId && transports.size === 1) {
+      sessionId = [...transports.keys()][0];
+      console.log(`[${cfg.name}] inferred sessionId=${sessionId} for POST without param`);
+    }
     if (!sessionId) {
-      res.status(400).send('missing sessionId');
+      // Return 404 so http-first clients gracefully fallback to SSE only instead of treating as protocol error
+      res.status(404).send('no session');
       return;
     }
     const transport = transports.get(sessionId);
