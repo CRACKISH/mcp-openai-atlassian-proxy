@@ -179,7 +179,8 @@ function startHttpServer(
     const ua = (req.headers['user-agent'] as string | undefined) || '';
     console.log(`[${cfg.name}] connect #${id} ip=${ip} ua="${ua}"`);
     res.on('close', () => console.log(`[${cfg.name}] disconnect #${id}`));
-  const transport = new SSEServerTransport('/messages', res);
+  // Use relative path (no leading slash) so clients preserve mounting prefix (/jira, /confluence)
+  const transport = new SSEServerTransport('messages', res);
     // Register BEFORE connect to avoid race with first POST initialize
     transports.set(transport.sessionId, transport);
     console.log(`[${cfg.name}] pre-register session ${transport.sessionId}`);
@@ -218,8 +219,6 @@ function startHttpServer(
   }
 
   app.post('/messages', express.raw({ type: 'application/json', limit: '4mb' }), (req, res) => void handlePost(req, res, false));
-  // Alias to support clients that still try POST /sse (e.g. http-first probing)
-  app.post('/sse', express.raw({ type: 'application/json', limit: '4mb' }), (req, res) => void handlePost(req, res, true));
 
   app.listen(options.port, () => {
     console.log(`[${cfg.name}] listening on :${options.port} -> upstream ${upstreamUrl}`);
