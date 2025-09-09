@@ -1,35 +1,32 @@
 ## Atlassian MCP OpenAI Proxy (Jira + Confluence)
 
-Ultra‑thin dual port proxy that makes an existing Atlassian MCP server (e.g. `mcp-atlassian`) look minimal & stable to OpenAI MCP clients.
+Dual-port shim that exposes a minimal, stable pair of tools (`search`, `fetch`) for Jira and Confluence while delegating real work to an upstream Atlassian MCP implementation.
 
-Per product it exposes only two tool names:
+Each product launches its own MCP server (using `@modelcontextprotocol/sdk`):
 
-Jira: `search`, `fetch`
-Confluence: `search`, `fetch`
-
-Mapped 1:1 to upstream fixed tools:
-
-| Shim Tool         | Upstream Tool         |
+| Local Tool        | Upstream Tool         |
 | ----------------- | --------------------- |
 | jira:search       | `jira_search`         |
 | jira:fetch        | `jira_get_issue`      |
 | confluence:search | `confluence_search`   |
 | confluence:fetch  | `confluence_get_page` |
 
-Everything else is hidden. JSON-RPC payloads are forwarded almost verbatim; only two transformations happen:
+The shim registers only those two tools; it does not forward or re‑label arbitrary upstream tools, keeping the surface area predictable for agents.
 
-1. Upstream `tools/list` response is filtered & tool names rewritten to `search` / `fetch`.
-2. Outgoing `tools/call` with `search` / `fetch` are renamed back to upstream tool identifiers.
+### How It Works (0.4.0)
 
-No local MCP server instance, no additional JSON-RPC logic — just SSE + POST relay with tiny name rewrite.
+1. Local MCP server (per product) registers `search` and `fetch`.
+2. When called, it constructs arguments via small delegate mappers and invokes the upstream tool via an MCP client over SSE.
+3. Results are mapped to a compact JSON object (id, title, url, text, metadata) and returned as a single text content item.
+4. No session persistence beyond in-memory; one local session talks to a shared upstream client instance.
 
 ### Current State
 
-Version: 0.3.0 (pure transparent proxy refactor; removed embedded MCP SDK and custom upstream client class).
+Version: 0.4.0 (embedded MCP server again; simplified delegates; removed legacy health endpoint and generic tool filtering logic).
 
-### Why
+### Rationale
 
-Goal: keep a tiny stable surface for AI agents while delegating everything to the authoritative upstream; cut token noise and avoid unexpected extra tools.
+Keep a deliberately tiny stable contract for AI agents (exactly two tools per product) while allowing upstream evolution; minimize token noise and churn.
 
 ---
 
@@ -37,16 +34,10 @@ Goal: keep a tiny stable surface for AI agents while delegating everything to th
 
 ```bash
 npm install
-cp .env.example .env   # set UPSTREAM_MCP_URL=https://your-upstream-host:7000/sse
+cp .env.example .env
+# edit .env (UPSTREAM_MCP_URL=https://your-upstream-host:7000/sse)
 npm run build
-npm start  # starts :7100 (jira) and :7200 (confluence)
-```
-
-Health:
-
-```
-GET http://localhost:7100/healthz   # jira
-GET http://localhost:7200/healthz   # confluence
+npm start   # :7100 jira shim, :7200 confluence shim
 ```
 
 ### Required Env
@@ -74,12 +65,11 @@ CONFLUENCE_SHIM_PORT=7200
 
 ## Behavior
 
-1. Client opens `GET /sse` (jira or confluence port). Proxy simultaneously opens upstream `/sse`.
-2. On upstream `endpoint` event we emit our own `endpoint` pointing to local `/messages?sessionId=...`.
-3. All JSON events are forwarded; when a payload looks like `tools/list` response its `result.tools` is filtered & renamed.
-4. Client `POST /messages` JSON-RPC: if `method=tools/call` and `params.name` is `search|fetch` it is rewritten to upstream name; otherwise untouched.
-5. Responses flow back unchanged (except the earlier tool-list filtering).
-6. One local session = one upstream session; simple in-memory map, no persistence.
+1. Client connects: `GET /sse` on the relevant port.
+2. Shim creates (or reuses shared upstream MCP client) and local MCP server emits its own endpoint for `/messages`.
+3. Only `search` and `fetch` are listed; no dynamic filtering of upstream tool lists.
+4. Tool invocation -> delegate builds upstream arguments -> upstream call -> delegate maps result -> compact JSON returned.
+5. SSE only (streamable HTTP left out to stay lean).
 
 ### Not Included Anymore
 
@@ -95,8 +85,8 @@ CONFLUENCE_SHIM_PORT=7200
 ## Docker
 
 ```bash
-docker build -t mcp-atlassian-proxy:0.3.0 .
-docker run --rm -e UPSTREAM_MCP_URL="https://your-upstream:7000/sse" -p 7100:7100 -p 7200:7200 mcp-atlassian-proxy:0.3.0
+docker build -t mcp-atlassian-proxy:0.4.0 .
+docker run --rm -e UPSTREAM_MCP_URL="https://your-upstream:7000/sse" -p 7100:7100 -p 7200:7200 mcp-atlassian-proxy:0.4.0
 ```
 
 ---
@@ -115,7 +105,9 @@ docker run --rm -e UPSTREAM_MCP_URL="https://your-upstream:7000/sse" -p 7100:710
 
 ## Versioning
 
-0.3.0 = Pure proxy (no embedded SDK). If upgrading from 0.2.x nothing to change client‑side; behavior is identical except tool descriptions are no longer truncated.
+0.4.0 = Re‑embed MCP server (explicit tool registration). Removed health endpoints. Cleaner delegates.  
+0.3.0 = Pure pass‑through proxy variant (now superseded).  
+0.2.x = Early experimental structure.
 
 ---
 
