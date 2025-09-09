@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import 'dotenv/config';
-import { startJiraShim, startConfluenceShim } from './servers/index.js';
+import { log } from './log.js';
+import { startConfluenceShim, startJiraShim } from './servers/index.js';
 
 interface LaunchConfig {
 	upstreamUrl: string;
@@ -24,17 +25,29 @@ function readConfig(): LaunchConfig {
 
 export async function main() {
 	const cfg = readConfig();
-	console.log('[proxy] upstream:', cfg.upstreamUrl);
+	const startTs = Date.now();
+	log({ evt: 'proxy_start', msg: 'starting proxy', upstreamUrl: cfg.upstreamUrl });
 	await Promise.all([
 		startJiraShim({ port: cfg.jiraPort, upstreamUrl: cfg.upstreamUrl }),
 		startConfluenceShim({ port: cfg.confluencePort, upstreamUrl: cfg.upstreamUrl }),
 	]);
-	console.log('[proxy] jira=:' + cfg.jiraPort + ' confluence=:' + cfg.confluencePort);
+	log({
+		evt: 'proxy_ready',
+		msg: 'shims started',
+		port: cfg.jiraPort,
+		upstreamUrl: cfg.upstreamUrl,
+		durationMs: Date.now() - startTs,
+	});
 }
 
 if (process.argv[1] === new URL(import.meta.url).pathname) {
 	main().catch(e => {
-		console.error('[proxy] fatal startup error:', e);
+		log({
+			evt: 'proxy_fatal',
+			msg: 'fatal startup error',
+			lvl: 'error',
+			reason: e instanceof Error ? e.message : String(e),
+		});
 		process.exit(1);
 	});
 }

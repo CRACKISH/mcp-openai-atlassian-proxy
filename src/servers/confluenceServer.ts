@@ -1,4 +1,5 @@
 import { JsonObject, JsonValue } from '../types/json.js';
+import { FetchedDocument, SearchResults } from '../types/tools.js';
 import { FetchDelegate, SearchDelegate, ShimOptions, startShimServer } from './shimFactory.js';
 
 const CONFLUENCE_SEARCH_TOOL = 'confluence_search';
@@ -8,14 +9,25 @@ const confluenceSearchDelegate: SearchDelegate = {
 	prepareSearchArguments(query: string): JsonObject {
 		return { query, limit: 10 };
 	},
-	mapSearchResults(raw: JsonValue) {
-		const r: any = raw as any;
-		const items = Array.isArray(r) ? r : (r?.results ?? []);
-		const list = items.map((p: any) => ({
-			id: String(p?.id ?? p?.pageId ?? ''),
-			title: String(p?.title ?? 'Untitled'),
-			url: String(p?.url ?? p?._links?.webui ?? ''),
-		}));
+	mapSearchResults(raw: JsonValue): SearchResults {
+		const itemsSrc = Array.isArray(raw)
+			? raw
+			: raw &&
+				  typeof raw === 'object' &&
+				  Array.isArray((raw as Record<string, unknown>)['results'])
+				? ((raw as Record<string, unknown>)['results'] as unknown[])
+				: [];
+		const list = itemsSrc.map(p => {
+			const rec = p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
+			const idVal = rec['id'] ?? rec['pageId'] ?? '';
+			const titleVal = rec['title'] ?? 'Untitled';
+			const links =
+				rec['_links'] && typeof rec['_links'] === 'object'
+					? (rec['_links'] as Record<string, unknown>)
+					: undefined;
+			const urlVal = rec['url'] ?? links?.['webui'] ?? '';
+			return { id: String(idVal), title: String(titleVal), url: String(urlVal) };
+		});
 		return { results: list };
 	},
 };
@@ -24,18 +36,42 @@ const confluenceFetchDelegate: FetchDelegate = {
 	prepareFetchArguments(id: string): JsonObject {
 		return { page_id: id, include_metadata: true, convert_to_markdown: true };
 	},
-	mapFetchResults(raw: JsonValue) {
-		const doc: any = raw as any;
-		const meta = doc?.metadata ?? doc?.page ?? doc ?? {};
-		const id = String(meta?.id ?? meta?.pageId ?? 'unknown');
-		const title = String(meta?.title ?? 'Untitled');
-		const url = String(meta?.url ?? meta?._links?.webui ?? '');
-		const text =
-			(doc?.content?.value && String(doc.content.value)) ||
-			(meta?.content?.value && String(meta.content.value)) ||
+	mapFetchResults(raw: JsonValue): FetchedDocument {
+		const doc = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+		const meta =
+			doc['metadata'] && typeof doc['metadata'] === 'object'
+				? (doc['metadata'] as Record<string, unknown>)
+				: doc['page'] && typeof doc['page'] === 'object'
+					? (doc['page'] as Record<string, unknown>)
+					: doc;
+		const idVal = meta['id'] ?? meta['pageId'] ?? 'unknown';
+		const titleVal = meta['title'] ?? 'Untitled';
+		const links =
+			meta['_links'] && typeof meta['_links'] === 'object'
+				? (meta['_links'] as Record<string, unknown>)
+				: undefined;
+		const urlVal = meta['url'] ?? links?.['webui'] ?? '';
+		const contentObj =
+			doc['content'] && typeof doc['content'] === 'object'
+				? (doc['content'] as Record<string, unknown>)
+				: undefined;
+		const metaContent =
+			meta['content'] && typeof meta['content'] === 'object'
+				? (meta['content'] as Record<string, unknown>)
+				: undefined;
+		const textCandidate =
+			(contentObj?.['value'] && String(contentObj['value'])) ||
+			(metaContent?.['value'] && String(metaContent['value'])) ||
 			JSON.stringify(doc, null, 2);
-
-		return { id, title, text, url, metadata: { source: 'confluence' } as JsonObject };
+		const textVal = String(textCandidate);
+		const metadata: JsonObject = { source: 'confluence' };
+		return {
+			id: String(idVal),
+			title: String(titleVal),
+			text: textVal,
+			url: String(urlVal),
+			metadata,
+		};
 	},
 };
 
@@ -47,8 +83,10 @@ export async function startConfluenceShim(opts: ShimOptions) {
 			serverName: 'confluence-shim',
 			upstreamSearchTool: CONFLUENCE_SEARCH_TOOL,
 			upstreamFetchTool: CONFLUENCE_FETCH_TOOL,
-			defaultSearchDescription: 'Confluence search',
-			defaultFetchDescription: 'Confluence page fetch',
+			defaultSearchDescription:
+				'Search Confluence pages by keyword phrase. Returns up to 10 pages with id=page id, title=page title, url=citation URL suitable for follow‑up fetch. Use concise topical queries (e.g. release notes Q2, architecture overview).',
+			defaultFetchDescription:
+				'Fetch a Confluence page by id to get full page text (markdown if available) plus metadata.source=confluence. Use after search to retrieve detailed content for reasoning or citation.',
 			searchDelegate: confluenceSearchDelegate,
 			fetchDelegate: confluenceFetchDelegate,
 		},
