@@ -1,15 +1,17 @@
+// shimFactory.ts
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import cors from 'cors';
-import express from 'express';
+import express, { Request, Response } from 'express';
 import { z } from 'zod';
-import type { JsonObject, JsonValue } from '../types/json.js';
+import { JsonObject, JsonValue } from '../types/json.js';
 
 export interface ShimOptions {
 	port: number;
 	upstreamUrl: string;
+	publicPrefix?: string;
 }
 
 export interface SearchDelegate {
@@ -41,6 +43,7 @@ export interface ProductShimConfig {
 	fetchDelegate: FetchDelegate;
 }
 
+/* ------------------------ helpers ------------------------ */
 export function extractJsonFromContent(res: JsonValue): JsonValue {
 	if (res && typeof res === 'object' && !Array.isArray(res)) {
 		const obj = res as Record<string, JsonValue>;
@@ -70,12 +73,16 @@ async function createUpstreamClient(upstreamUrl: string) {
 	return client;
 }
 
+/* ------------------------ server factory ------------------------ */
+
 export async function startShimServer(opts: ShimOptions, cfg: ProductShimConfig) {
 	const upstream = await createUpstreamClient(opts.upstreamUrl);
+	const prefix = (opts.publicPrefix ?? '').replace(/\/+$/, '');
 
 	const buildServer = () => {
 		const mcp = new McpServer({ name: cfg.serverName, version: '0.4.0' });
 
+		// search(query: string)
 		mcp.registerTool(
 			'search',
 			{
@@ -89,12 +96,13 @@ export async function startShimServer(opts: ShimOptions, cfg: ProductShimConfig)
 					name: cfg.upstreamSearchTool,
 					arguments: args,
 				});
-				const raw = JSON.parse(JSON.stringify(res)) as JsonValue;
+				const raw = JSON.parse(JSON.stringify(res)) as JsonValue; // de-proxy
 				const mapped = cfg.searchDelegate.mapSearchResults(extractJsonFromContent(raw));
 				return { content: [{ type: 'text', text: JSON.stringify(mapped) }] };
 			},
 		);
 
+		// fetch(id: string)
 		mcp.registerTool(
 			'fetch',
 			{
@@ -118,36 +126,65 @@ export async function startShimServer(opts: ShimOptions, cfg: ProductShimConfig)
 	};
 
 	const app = express();
+	app.disable('x-powered-by');
+	app.set('trust proxy', true);
+
 	app.use(cors());
-	app.use(express.json());
+	app.use(express.json({ limit: '4mb' }));
+	app.use(express.urlencoded({ extended: false }));
 
-	const sseTransports: Record<string, SSEServerTransport> = {};
+	app.get('/healthz', (_req, res) => res.status(200).json({ ok: true }));
 
-	app.get('/sse', async (req, res) => {
-		const transport = new SSEServerTransport('/messages', res);
-		sseTransports[transport.sessionId] = transport;
+	const sessions: Record<string, SSEServerTransport> = {};
+
+	// GET {prefix}/sse -> віддаємо endpoint з тим самим префіксом!
+	app.get('/sse', async (req: Request, res: Response) => {
+		// важливо: endpoint має бути з публічним префіксом
+		const endpoint = `${prefix}/messages`;
+		const transport = new SSEServerTransport(endpoint, res);
+		sessions[transport.sessionId] = transport;
 
 		res.on('close', () => {
-			delete sseTransports[transport.sessionId];
+			delete sessions[transport.sessionId];
 		});
 
 		const server = buildServer();
 		await server.connect(transport);
 	});
 
-	app.post('/messages', async (req, res) => {
-		const sessionId = String(req.query.sessionId || '');
-		const transport = sseTransports[sessionId];
-		if (!transport) {
-			res.status(400).send('No transport found for sessionId');
-			return;
-		}
-		await transport.handlePostMessage(req, res, req.body);
+	// GET/POST {prefix}/messages?sessionId=... (або session_id=...)
+	const resolveSession = (req: Request) => {
+		const sid = req.query.sessionId ?? req.query.session_id ?? req.query['session-id'] ?? '';
+		return String(sid || '');
+	};
+
+	app.post('/messages', async (req: Request, res: Response) => {
+		const sid = resolveSession(req);
+		const t = sessions[sid];
+		if (!t) return res.status(400).send('No transport found for sessionId');
+		await t.handlePostMessage(req, res, req.body);
 	});
 
-	app.listen(opts.port, () => {
-		console.log(`[shim:${cfg.productKey}] HTTP listening on :${opts.port}`);
+	const server = app.listen(opts.port, () => {
+		console.log(`[shim:${cfg.productKey}] HTTP :${opts.port}`);
 		console.log(`[shim:${cfg.productKey}] SSE endpoint: http://localhost:${opts.port}/sse`);
-		console.log(`[shim:${cfg.productKey}] upstream ${opts.upstreamUrl}`);
+		console.log(`[shim:${cfg.productKey}] upstream: ${opts.upstreamUrl}`);
 	});
+
+	const shutdown = () => {
+		console.log(`[shim:${cfg.productKey}] shutting down...`);
+		server.close(() => process.exit(0));
+		for (const [sid, t] of Object.entries(sessions)) {
+			try {
+				t.close?.();
+				delete sessions[sid];
+			} catch {
+				// ignore
+			}
+		}
+	};
+	process.on('SIGINT', shutdown);
+	process.on('SIGTERM', shutdown);
+
+	return server;
 }

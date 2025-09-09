@@ -1,5 +1,5 @@
 import { JsonObject, JsonValue } from '../types/json.js';
-import { startShimServer, ShimOptions, FetchDelegate, SearchDelegate } from './shimFactory.js';
+import { FetchDelegate, SearchDelegate, ShimOptions, startShimServer } from './shimFactory.js';
 
 const CONFLUENCE_SEARCH_TOOL = 'confluence_search';
 const CONFLUENCE_FETCH_TOOL = 'confluence_get_page';
@@ -40,16 +40,19 @@ const confluenceFetchDelegate: FetchDelegate = {
 };
 
 export async function startConfluenceShim(opts: ShimOptions) {
-	return startShimServer(opts, {
-		productKey: 'confluence',
-		serverName: 'confluence-shim',
-		upstreamSearchTool: CONFLUENCE_SEARCH_TOOL,
-		upstreamFetchTool: CONFLUENCE_FETCH_TOOL,
-		defaultSearchDescription: 'Confluence search',
-		defaultFetchDescription: 'Confluence page fetch',
-		searchDelegate: confluenceSearchDelegate,
-		fetchDelegate: confluenceFetchDelegate,
-	}).catch(err => {
+	return startShimServer(
+		{ ...opts, publicPrefix: '/confluence' },
+		{
+			productKey: 'confluence',
+			serverName: 'confluence-shim',
+			upstreamSearchTool: CONFLUENCE_SEARCH_TOOL,
+			upstreamFetchTool: CONFLUENCE_FETCH_TOOL,
+			defaultSearchDescription: 'Confluence search',
+			defaultFetchDescription: 'Confluence page fetch',
+			searchDelegate: confluenceSearchDelegate,
+			fetchDelegate: confluenceFetchDelegate,
+		},
+	).catch(err => {
 		console.error('confluence-shim failed:', err);
 		process.exit(1);
 	});

@@ -59,16 +59,19 @@ const jiraFetchDelegate: FetchDelegate = {
 };
 
 export async function startJiraShim(opts: ShimOptions) {
-	return startShimServer(opts, {
-		productKey: 'jira',
-		serverName: 'jira-shim',
-		upstreamSearchTool: JIRA_SEARCH_TOOL,
-		upstreamFetchTool: JIRA_FETCH_TOOL,
-		defaultSearchDescription: 'Jira search',
-		defaultFetchDescription: 'Jira issue fetch',
-		searchDelegate: jiraSearchDelegate,
-		fetchDelegate: jiraFetchDelegate,
-	}).catch(err => {
+	return startShimServer(
+		{ ...opts, publicPrefix: '/jira' },
+		{
+			productKey: 'jira',
+			serverName: 'jira-shim',
+			upstreamSearchTool: JIRA_SEARCH_TOOL,
+			upstreamFetchTool: JIRA_FETCH_TOOL,
+			defaultSearchDescription: 'Jira search',
+			defaultFetchDescription: 'Jira issue fetch',
+			searchDelegate: jiraSearchDelegate,
+			fetchDelegate: jiraFetchDelegate,
+		},
+	).catch(err => {
 		console.error('jira-shim failed:', err);
 		process.exit(1);
 	});
