@@ -13,6 +13,7 @@ interface LogRecordBase {
 	reason?: string;
 	transport?: string;
 	durationMs?: number;
+	ip?: string;
 }
 
 function plain(r: LogRecordBase) {

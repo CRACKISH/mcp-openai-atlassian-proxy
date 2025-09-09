@@ -130,11 +130,16 @@ export async function startShimServer(opts: ShimOptions, cfg: ProductShimConfig)
 		const endpoint = `${prefix}/messages`;
 		const transport = new SSEServerTransport(endpoint, res);
 		sessions[transport.sessionId] = transport;
+		const ip = (req.headers['x-forwarded-for'] || req.ip || req.socket.remoteAddress || '')
+			.toString()
+			.split(',')[0]
+			.trim();
 		log({
 			evt: 'session_open',
 			msg: 'open',
 			shim: cfg.productKey,
 			sessionId: transport.sessionId,
+			ip,
 		});
 
 		res.on('close', () => {
@@ -144,6 +149,7 @@ export async function startShimServer(opts: ShimOptions, cfg: ProductShimConfig)
 				msg: 'close',
 				shim: cfg.productKey,
 				sessionId: transport.sessionId,
+				ip,
 			});
 		});
 
