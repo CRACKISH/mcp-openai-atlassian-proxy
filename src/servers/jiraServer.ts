@@ -5,6 +5,24 @@ import { FetchDelegate, SearchDelegate, ShimOptions, startShimServer } from './s
 const JIRA_SEARCH_TOOL = 'jira_search';
 const JIRA_FETCH_TOOL = 'jira_get_issue';
 
+function deriveIssueUrl(issueKey: JsonValue, rawUrl: JsonValue): string {
+	const key = issueKey == null ? '' : String(issueKey).trim();
+	const raw = typeof rawUrl === 'string' ? rawUrl : '';
+	if (/\/browse\//.test(raw)) return raw; // already canonical
+	try {
+		if (raw) {
+			const u = new URL(raw);
+			// support instance mounted under context path (e.g. /jira)
+			const restIdx = u.pathname.indexOf('/rest/api/');
+			const basePath = restIdx >= 0 ? u.pathname.slice(0, restIdx) : '';
+			if (key) return `${u.origin}${basePath}/browse/${key}`.replace(/\/$/, '');
+		}
+	} catch {
+		/* ignore */
+	}
+	return key ? `/browse/${key}` : raw;
+}
+
 function looksLikeJql(q: string): boolean {
 	const s = String(q || '').toLowerCase();
 	return /[=]|order by|project|status|assignee|labels|issue|parent|updated|created/.test(s);
@@ -29,7 +47,8 @@ const jiraSearchDelegate: SearchDelegate = {
 					? (rec['fields'] as Record<string, unknown>)
 					: undefined;
 			const summary = fields?.['summary'] ?? rec['summary'];
-			const urlVal = rec['url'] ?? rec['webUrl'] ?? rec['self'] ?? '';
+			const rawUrl = rec['url'] ?? rec['webUrl'] ?? rec['self'] ?? '';
+			const urlVal = deriveIssueUrl(idVal as JsonValue, rawUrl as JsonValue);
 			return {
 				id: String(idVal),
 				title: String(summary ?? `Issue ${idVal || 'N/A'}`),
@@ -52,7 +71,8 @@ const jiraFetchDelegate: FetchDelegate = {
 				? (doc['fields'] as Record<string, unknown>)
 				: undefined;
 		const titleVal = fields?.['summary'] ?? doc['summary'] ?? `Issue ${idVal}`;
-		const urlVal = doc['url'] ?? doc['webUrl'] ?? doc['self'] ?? '';
+		const rawUrl = doc['url'] ?? doc['webUrl'] ?? doc['self'] ?? '';
+		const urlVal = deriveIssueUrl(idVal as JsonValue, rawUrl as JsonValue);
 		const parts: string[] = [];
 		if (typeof doc['summary'] === 'string') parts.push(`Summary: ${doc['summary']}`);
 		if (typeof doc['description'] === 'string')

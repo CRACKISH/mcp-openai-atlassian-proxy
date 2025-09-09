@@ -5,6 +5,24 @@ import { FetchDelegate, SearchDelegate, ShimOptions, startShimServer } from './s
 const CONFLUENCE_SEARCH_TOOL = 'confluence_search';
 const CONFLUENCE_FETCH_TOOL = 'confluence_get_page';
 
+function normalizeConfluenceUrl(urlVal: JsonValue, fallbackAbsolute?: string): string {
+	const raw = typeof urlVal === 'string' ? urlVal : '';
+	if (!raw) return '';
+	if (/^https?:\/\//i.test(raw)) return raw; // already absolute
+	// raw is likely relative webui path like /wiki/spaces/KEY/pages/ID/Title
+	if (fallbackAbsolute && /^https?:\/\//i.test(fallbackAbsolute)) {
+		try {
+			const u = new URL(fallbackAbsolute);
+			// ensure single leading slash
+			const rel = raw.startsWith('/') ? raw : `/${raw}`;
+			return `${u.origin}${rel}`;
+		} catch {
+			return raw;
+		}
+	}
+	return raw;
+}
+
 const confluenceSearchDelegate: SearchDelegate = {
 	prepareSearchArguments(query: string): JsonObject {
 		return { query, limit: 10 };
@@ -25,8 +43,10 @@ const confluenceSearchDelegate: SearchDelegate = {
 				rec['_links'] && typeof rec['_links'] === 'object'
 					? (rec['_links'] as Record<string, unknown>)
 					: undefined;
-			const urlVal = rec['url'] ?? links?.['webui'] ?? '';
-			return { id: String(idVal), title: String(titleVal), url: String(urlVal) };
+			const rawUrl = rec['url'] ?? links?.['webui'] ?? '';
+			const absolute = typeof rec['url'] === 'string' ? rec['url'] : undefined;
+			const urlVal = normalizeConfluenceUrl(rawUrl as JsonValue, absolute);
+			return { id: String(idVal), title: String(titleVal), url: urlVal };
 		});
 		return { results: list };
 	},
@@ -50,7 +70,9 @@ const confluenceFetchDelegate: FetchDelegate = {
 			meta['_links'] && typeof meta['_links'] === 'object'
 				? (meta['_links'] as Record<string, unknown>)
 				: undefined;
-		const urlVal = meta['url'] ?? links?.['webui'] ?? '';
+		const rawUrl = meta['url'] ?? links?.['webui'] ?? '';
+		const absolute = typeof meta['url'] === 'string' ? (meta['url'] as string) : undefined;
+		const urlVal = normalizeConfluenceUrl(rawUrl as JsonValue, absolute);
 		const contentObj =
 			doc['content'] && typeof doc['content'] === 'object'
 				? (doc['content'] as Record<string, unknown>)
