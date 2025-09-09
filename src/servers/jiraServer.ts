@@ -7,23 +7,9 @@ const JIRA_FETCH_TOOL = 'jira_get_issue';
 
 function toCanonicalIssueUrl(issueKey: string, rawUrl: string): string {
 	if (!issueKey) return rawUrl;
-	if (!rawUrl) return `/browse/${issueKey}`;
-	if (/\/browse\//.test(rawUrl)) return rawUrl;
-	const abs = /^https?:\/\//.test(rawUrl);
-	try {
-		const u = new URL(abs ? rawUrl : `https://x${rawUrl.startsWith('/') ? '' : '/'}${rawUrl}`);
-		const p = u.pathname;
-		const restIdx = p.indexOf('/rest/api/');
-		const issueIdx = p.indexOf('/issue/');
-		if (restIdx >= 0 && issueIdx > restIdx) {
-			const basePath = p.slice(0, restIdx);
-			return (abs ? `${u.origin}${basePath}` : '') + `/browse/${issueKey}`;
-		}
-	} catch {
-		/* noop */
-	}
-	if (rawUrl.startsWith('/rest/api/')) return `/browse/${issueKey}`;
-	return rawUrl.startsWith('/browse/') ? rawUrl : `/browse/${issueKey}`;
+	const browse = `/browse/${issueKey}`;
+	if (!rawUrl) return browse;
+	return rawUrl.replace(/\/rest\/api\/2\/issue\/[A-Z0-9_]+-\d+/i, browse);
 }
 
 function looksLikeJql(q: string): boolean {
@@ -67,7 +53,11 @@ const jiraSearchDelegate: SearchDelegate = {
 
 const jiraFetchDelegate: FetchDelegate = {
 	prepareFetchArguments(id: string): JsonObject {
-		return { issue_key: id };
+		// Request explicit fields including 'url' so upstream returns raw REST URL we canonicalize.
+		return {
+			issue_key: id,
+			fields: 'summary,description,status,comments,url',
+		};
 	},
 	mapFetchResults(raw: JsonValue): FetchedDocument {
 		const doc = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};

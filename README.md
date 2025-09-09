@@ -84,19 +84,20 @@ If you want ChatGPT (or any MCP compatible client) to use Jira / Confluence cont
 1. Run the upstream Atlassian MCP (e.g. `sooperset/mcp-atlassian`). Note its SSE endpoint (e.g. `https://upstream-host:7000/sse`).
 2. Configure this proxy `.env` with `UPSTREAM_MCP_URL` pointing to that SSE endpoint.
 3. Start the proxy (this repo). It will expose two MCP servers locally:
-	 - Jira: default `http://localhost:7100/sse`
-	 - Confluence: default `http://localhost:7200/sse`
+    - Jira: default `http://localhost:7100/sse`
+    - Confluence: default `http://localhost:7200/sse`
 4. In ChatGPT MCP configuration (Custom tool / self-hosted MCP) register endpoints you need. Each exposes exactly two tools:
-	 - `search`
-	 - `fetch`
+    - `search`
+    - `fetch`
 
 Example ChatGPT (conceptual JSON snippet):
+
 ```jsonc
 {
 	"mcpServers": {
 		"jira": { "url": "http://localhost:7100/sse" },
-		"confluence": { "url": "http://localhost:7200/sse" }
-	}
+		"confluence": { "url": "http://localhost:7200/sse" },
+	},
 }
 ```
 
