@@ -8,12 +8,10 @@ const CONFLUENCE_FETCH_TOOL = 'confluence_get_page';
 function normalizeConfluenceUrl(urlVal: JsonValue, fallbackAbsolute?: string): string {
 	const raw = typeof urlVal === 'string' ? urlVal : '';
 	if (!raw) return '';
-	if (/^https?:\/\//i.test(raw)) return raw; // already absolute
-	// raw is likely relative webui path like /wiki/spaces/KEY/pages/ID/Title
+	if (/^https?:\/\//i.test(raw)) return raw;
 	if (fallbackAbsolute && /^https?:\/\//i.test(fallbackAbsolute)) {
 		try {
 			const u = new URL(fallbackAbsolute);
-			// ensure single leading slash
 			const rel = raw.startsWith('/') ? raw : `/${raw}`;
 			return `${u.origin}${rel}`;
 		} catch {
