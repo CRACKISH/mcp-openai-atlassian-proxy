@@ -142,7 +142,21 @@ export async function startShimServer(opts: ShimOptions, cfg: ProductShimConfig)
 			ip,
 		});
 
+		const keepAliveMs = Number(25_000);
+		const keepAliveTimer = setInterval(() => {
+			try {
+				if (res.writableEnded || res.destroyed) {
+					clearInterval(keepAliveTimer);
+					return;
+				}
+				res.write(`:ka ${Date.now()}\n\n`);
+			} catch {
+				clearInterval(keepAliveTimer);
+			}
+		}, keepAliveMs).unref?.();
+
 		res.on('close', () => {
+			clearInterval(keepAliveTimer as unknown as NodeJS.Timeout);
 			delete sessions[transport.sessionId];
 			log({
 				evt: 'session_close',
