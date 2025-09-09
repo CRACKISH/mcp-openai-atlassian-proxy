@@ -2,6 +2,10 @@
 
 Dual-port shim that exposes a minimal, stable pair of tools (`search`, `fetch`) for Jira and Confluence while delegating real work to an upstream Atlassian MCP implementation.
 
+Designed specifically as a thin compatibility layer so OpenAI ChatGPT / Claude or any MCP-capable client can safely consume Atlassian data from an upstream like:
+
+Upstream reference implementation: https://github.com/sooperset/mcp-atlassian
+
 Each product launches its own MCP server (using `@modelcontextprotocol/sdk`):
 
 | Local Tool        | Upstream Tool         |
@@ -70,6 +74,41 @@ CONFLUENCE_SHIM_PORT=7200
 3. Only `search` and `fetch` are listed; no dynamic filtering of upstream tool lists.
 4. Tool invocation -> delegate builds upstream arguments -> upstream call -> delegate maps result -> compact JSON returned.
 5. SSE only (streamable HTTP left out to stay lean).
+
+---
+
+## Integration with OpenAI ChatGPT (Model Context Protocol)
+
+If you want ChatGPT (or any MCP compatible client) to use Jira / Confluence context, point ChatGPT at this shim instead of the full upstream. The shim keeps the tool surface tiny and stable.
+
+1. Run the upstream Atlassian MCP (e.g. `sooperset/mcp-atlassian`). Note its SSE endpoint (e.g. `https://upstream-host:7000/sse`).
+2. Configure this proxy `.env` with `UPSTREAM_MCP_URL` pointing to that SSE endpoint.
+3. Start the proxy (this repo). It will expose two MCP servers locally:
+	 - Jira: default `http://localhost:7100/sse`
+	 - Confluence: default `http://localhost:7200/sse`
+4. In ChatGPT MCP configuration (Custom tool / self-hosted MCP) register endpoints you need. Each exposes exactly two tools:
+	 - `search`
+	 - `fetch`
+
+Example ChatGPT (conceptual JSON snippet):
+```jsonc
+{
+	"mcpServers": {
+		"jira": { "url": "http://localhost:7100/sse" },
+		"confluence": { "url": "http://localhost:7200/sse" }
+	}
+}
+```
+
+Returned payloads (content[0].text) are compact JSON strings:
+
+Search (jira): `{ "results": [{ "id": "RND-123", "title": "Summary", "url": "https://your.atlassian.net/browse/RND-123" }] }`
+
+Fetch (jira): `{ "id": "RND-123", "title": "Summary", "text": "Summary: ...", "url": "https://your.atlassian.net/browse/RND-123", "metadata": { "source": "jira" } }`
+
+Confluence analogous, with page id and markdown body in `text`.
+
+Why not expose the whole upstream tool list? Smaller surface => lower token noise, simpler prompting and fewer accidental large calls.
 
 ### Not Included Anymore
 
