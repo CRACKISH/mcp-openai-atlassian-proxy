@@ -5,37 +5,25 @@ import { FetchDelegate, SearchDelegate, ShimOptions, startShimServer } from './s
 const JIRA_SEARCH_TOOL = 'jira_search';
 const JIRA_FETCH_TOOL = 'jira_get_issue';
 
-let jiraBrowseBase: string | undefined;
-
 function toCanonicalIssueUrl(issueKey: string, rawUrl: string): string {
 	if (!issueKey) return rawUrl;
-	if (/^https?:\/\//.test(rawUrl) && /\/browse\//.test(rawUrl)) {
-		if (!jiraBrowseBase) {
-			try {
-				const u = new URL(rawUrl);
-				jiraBrowseBase = u.origin;
-			} catch {
-				/* noop */
-			}
+	if (!rawUrl) return `/browse/${issueKey}`;
+	if (/\/browse\//.test(rawUrl)) return rawUrl;
+	const abs = /^https?:\/\//.test(rawUrl);
+	try {
+		const u = new URL(abs ? rawUrl : `https://x${rawUrl.startsWith('/') ? '' : '/'}${rawUrl}`);
+		const p = u.pathname;
+		const restIdx = p.indexOf('/rest/api/');
+		const issueIdx = p.indexOf('/issue/');
+		if (restIdx >= 0 && issueIdx > restIdx) {
+			const basePath = p.slice(0, restIdx);
+			return (abs ? `${u.origin}${basePath}` : '') + `/browse/${issueKey}`;
 		}
-		return rawUrl;
+	} catch {
+		/* noop */
 	}
-	if (/^https?:\/\//.test(rawUrl)) {
-		try {
-			const u = new URL(rawUrl);
-			const idx = u.pathname.indexOf('/rest/api/');
-			const basePath = idx >= 0 ? u.pathname.slice(0, idx) : '';
-			jiraBrowseBase = `${u.origin}${basePath}`.replace(/\/$/, '');
-			return `${jiraBrowseBase}/browse/${issueKey}`;
-		} catch {
-			/* noop */
-		}
-	}
-	if (rawUrl.startsWith('/browse/')) {
-		if (jiraBrowseBase) return `${jiraBrowseBase}${rawUrl}`;
-		return rawUrl;
-	}
-	return jiraBrowseBase ? `${jiraBrowseBase}/browse/${issueKey}` : `/browse/${issueKey}`;
+	if (rawUrl.startsWith('/rest/api/')) return `/browse/${issueKey}`;
+	return rawUrl.startsWith('/browse/') ? rawUrl : `/browse/${issueKey}`;
 }
 
 function looksLikeJql(q: string): boolean {
@@ -56,14 +44,17 @@ const jiraSearchDelegate: SearchDelegate = {
 		const arr = Array.isArray(issuesSrc) ? issuesSrc : [];
 		const list = arr.map(item => {
 			const rec = item && typeof item === 'object' ? (item as Record<string, unknown>) : {};
-			const idVal = rec['key'] ?? rec['id'] ?? '';
+			const keyVal = rec['key'];
+			const idVal = keyVal ?? rec['id'] ?? '';
 			const fields =
 				rec['fields'] && typeof rec['fields'] === 'object'
 					? (rec['fields'] as Record<string, unknown>)
 					: undefined;
 			const summary = fields?.['summary'] ?? rec['summary'];
 			const rawUrl = rec['url'] ?? rec['webUrl'] ?? rec['self'] ?? '';
-			const urlVal = toCanonicalIssueUrl(String(idVal), String(rawUrl));
+			const issueKey =
+				typeof keyVal === 'string' && /-/.test(keyVal) ? keyVal : String(idVal);
+			const urlVal = toCanonicalIssueUrl(issueKey, String(rawUrl));
 			return {
 				id: String(idVal),
 				title: String(summary ?? `Issue ${idVal || 'N/A'}`),
@@ -80,14 +71,16 @@ const jiraFetchDelegate: FetchDelegate = {
 	},
 	mapFetchResults(raw: JsonValue): FetchedDocument {
 		const doc = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
-		const idVal = doc['key'] ?? doc['id'] ?? 'unknown';
+		const keyVal = doc['key'];
+		const idVal = keyVal ?? doc['id'] ?? 'unknown';
 		const fields =
 			doc['fields'] && typeof doc['fields'] === 'object'
 				? (doc['fields'] as Record<string, unknown>)
 				: undefined;
 		const titleVal = fields?.['summary'] ?? doc['summary'] ?? `Issue ${idVal}`;
 		const rawUrl = doc['url'] ?? doc['webUrl'] ?? doc['self'] ?? '';
-		const urlVal = toCanonicalIssueUrl(String(idVal), String(rawUrl));
+		const issueKey = typeof keyVal === 'string' && /-/.test(keyVal) ? keyVal : String(idVal);
+		const urlVal = toCanonicalIssueUrl(issueKey, String(rawUrl));
 		const parts: string[] = [];
 		if (typeof doc['summary'] === 'string') parts.push(`Summary: ${doc['summary']}`);
 		if (typeof doc['description'] === 'string')
