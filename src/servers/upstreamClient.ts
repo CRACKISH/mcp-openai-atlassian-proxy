@@ -61,8 +61,8 @@ export class UpstreamClient {
 				}
 
 				if (this.transport) {
-					this.transport.onclose = () => this.scheduleReconnect();
-					this.transport.onerror = () => this.scheduleReconnect();
+					this.transport.onclose = () => this.scheduleReconnect(true);
+					this.transport.onerror = () => this.scheduleReconnect(true);
 				}
 
 				this.client = client;
@@ -90,18 +90,30 @@ export class UpstreamClient {
 		throw new Error('UpstreamClient closed');
 	}
 
-	private scheduleReconnect() {
+	private reconnecting = false;
+	private scheduleReconnect(fromEvent = false) {
 		if (this.closed) return;
+		if (this.reconnecting) return;
+		this.reconnecting = true;
 		this.stopHeartbeat();
 		this.client = undefined;
-		try {
-			this.transport?.close?.();
-		} catch {
-			void 0;
+		const t = this.transport;
+		if (t) {
+			t.onclose = null;
+			t.onerror = null;
+			if (!fromEvent) {
+				try {
+					t.close?.();
+				} catch {
+					void 0;
+				}
+			}
 		}
 		this.transport = null;
 		log({ evt: 'upstream_reconnect', msg: 'reconnect', shim: this.label });
-		void this.connect();
+		void this.connect().finally(() => {
+			this.reconnecting = false;
+		});
 	}
 
 	private startHeartbeat() {

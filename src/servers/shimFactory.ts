@@ -67,7 +67,7 @@ export async function startShimServer(opts: ShimOptions, cfg: ProductShimConfig)
 		port: opts.port,
 		upstreamUrl: opts.upstreamUrl,
 	});
-	const upstream = await createUpstreamClient(opts.upstreamUrl);
+	const upstream = await createUpstreamClient(opts.upstreamUrl, { label: cfg.productKey });
 	const prefix = (opts.publicPrefix ?? '').replace(/\/+$/, '');
 
 	const buildServer = () => {
