@@ -9,7 +9,7 @@ function toCanonicalIssueUrl(issueKey: string, rawUrl: string): string {
 	if (!issueKey) return rawUrl;
 	const browse = `/browse/${issueKey}`;
 	if (!rawUrl) return browse;
-	return rawUrl.replace(/\/rest\/api\/2\/issue\/[A-Z0-9_]+-\d+/i, browse);
+	return rawUrl.replace(/^(https?:\/\/[^/]+)\/rest\/api\/\d+\/issue\/\d+.*$/i, `$1${browse}`);
 }
 
 function looksLikeJql(q: string): boolean {
