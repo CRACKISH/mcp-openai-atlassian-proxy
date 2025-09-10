@@ -1,6 +1,7 @@
 import { JsonObject, JsonValue } from '../types/json.js';
+import { FetchDelegate, SearchDelegate, ShimOptions } from '../types/shim.js';
 import { FetchedDocument, SearchResults } from '../types/tools.js';
-import { FetchDelegate, SearchDelegate, ShimOptions, startShimServer } from './shimFactory.js';
+import { startShimServer } from './shimFactory.js';
 
 const JIRA_SEARCH_TOOL = 'jira_search';
 const JIRA_FETCH_TOOL = 'jira_get_issue';
@@ -53,7 +54,6 @@ const jiraSearchDelegate: SearchDelegate = {
 
 const jiraFetchDelegate: FetchDelegate = {
 	prepareFetchArguments(id: string): JsonObject {
-		// Request explicit fields including 'url' so upstream returns raw REST URL we canonicalize.
 		return {
 			issue_key: id,
 			fields: 'summary,description,status,comments,url',
@@ -113,7 +113,7 @@ const jiraFetchDelegate: FetchDelegate = {
 
 export async function startJiraShim(opts: ShimOptions) {
 	return startShimServer(
-		{ ...opts, publicPrefix: '/jira' },
+		{ ...opts },
 		{
 			productKey: 'jira',
 			serverName: 'jira-shim',

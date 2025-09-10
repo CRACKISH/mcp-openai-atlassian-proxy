@@ -1,6 +1,7 @@
 import { JsonObject, JsonValue } from '../types/json.js';
+import { FetchDelegate, SearchDelegate, ShimOptions } from '../types/shim.js';
 import { FetchedDocument, SearchResults } from '../types/tools.js';
-import { FetchDelegate, SearchDelegate, ShimOptions, startShimServer } from './shimFactory.js';
+import { startShimServer } from './shimFactory.js';
 
 const CONFLUENCE_SEARCH_TOOL = 'confluence_search';
 const CONFLUENCE_FETCH_TOOL = 'confluence_get_page';
@@ -97,7 +98,7 @@ const confluenceFetchDelegate: FetchDelegate = {
 
 export async function startConfluenceShim(opts: ShimOptions) {
 	return startShimServer(
-		{ ...opts, publicPrefix: '/confluence' },
+		{ ...opts },
 		{
 			productKey: 'confluence',
 			serverName: 'confluence-shim',

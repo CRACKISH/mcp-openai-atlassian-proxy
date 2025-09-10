@@ -17,7 +17,7 @@ Each product launches its own MCP server (using `@modelcontextprotocol/sdk`):
 
 The shim registers only those two tools; it does not forward or re‑label arbitrary upstream tools, keeping the surface area predictable for agents.
 
-### How It Works (0.4.0)
+### How It Works (0.4.1)
 
 1. Local MCP server (per product) registers `search` and `fetch`.
 2. When called, it constructs arguments via small delegate mappers and invokes the upstream tool via an MCP client over SSE.
@@ -26,7 +26,7 @@ The shim registers only those two tools; it does not forward or re‑label arbit
 
 ### Current State
 
-Version: 0.4.0 (embedded MCP server again; simplified delegates; removed legacy health endpoint and generic tool filtering logic).
+Version: 0.4.1 (lazy + idle upstream connection; refactored utilities; no breaking surface changes).
 
 ### Rationale
 
@@ -125,8 +125,8 @@ Why not expose the whole upstream tool list? Smaller surface => lower token nois
 ## Docker
 
 ```bash
-docker build -t mcp-atlassian-proxy:0.4.0 .
-docker run --rm -e UPSTREAM_MCP_URL="https://your-upstream:7000/sse" -p 7100:7100 -p 7200:7200 mcp-atlassian-proxy:0.4.0
+docker build -t mcp-atlassian-proxy:0.4.1 .
+docker run --rm -e UPSTREAM_MCP_URL="https://your-upstream:7000/sse" -p 7100:7100 -p 7200:7200 mcp-atlassian-proxy:0.4.1
 ```
 
 ---
@@ -145,6 +145,7 @@ docker run --rm -e UPSTREAM_MCP_URL="https://your-upstream:7000/sse" -p 7100:710
 
 ## Versioning
 
+0.4.1 = Lazy + idle upstream client (reduces idle resource usage), internal refactors (utils split).  
 0.4.0 = Re‑embed MCP server (explicit tool registration). Removed health endpoints. Cleaner delegates.  
 0.3.0 = Pure pass‑through proxy variant (now superseded).  
 0.2.x = Early experimental structure.

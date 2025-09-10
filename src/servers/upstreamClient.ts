@@ -49,7 +49,7 @@ export class UpstreamClient {
 					shim: this.label,
 					attempt: this.attempt,
 				});
-				const client = new Client({ name: 'openai-shim-upstream', version: '0.4.0' });
+				const client = new Client({ name: 'openai-shim-upstream', version: '0.4.1' });
 				try {
 					const t = new StreamableHTTPClientTransport(new URL(this.url));
 					await client.connect(t);

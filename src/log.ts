@@ -14,6 +14,9 @@ interface LogRecordBase {
 	transport?: string;
 	durationMs?: number;
 	ip?: string;
+	prefix?: string;
+	prefixReason?: string;
+	version?: string;
 }
 
 function plain(r: LogRecordBase) {

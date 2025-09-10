@@ -1,0 +1,2 @@
+import pkg from '../package.json' with { type: 'json' };
+export const VERSION: string = (pkg as { version?: string }).version || '0.0.0';

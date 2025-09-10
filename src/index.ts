@@ -34,7 +34,6 @@ export async function main() {
 	log({
 		evt: 'proxy_ready',
 		msg: 'shims started',
-		port: cfg.jiraPort,
 		upstreamUrl: cfg.upstreamUrl,
 		durationMs: Date.now() - startTs,
 	});
