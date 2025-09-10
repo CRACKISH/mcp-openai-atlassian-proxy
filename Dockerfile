@@ -17,6 +17,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=base /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+COPY package.json ./
 COPY LICENSE ./
 COPY README.md ./
 EXPOSE 7100 7200
