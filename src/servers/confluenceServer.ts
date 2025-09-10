@@ -98,7 +98,7 @@ const confluenceFetchDelegate: FetchDelegate = {
 
 export async function startConfluenceShim(opts: ShimOptions) {
 	return startShimServer(
-		{ ...opts },
+		{ ...opts, publicPrefix: '/confluence' },
 		{
 			productKey: 'confluence',
 			serverName: 'confluence-shim',

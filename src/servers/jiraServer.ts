@@ -113,7 +113,7 @@ const jiraFetchDelegate: FetchDelegate = {
 
 export async function startJiraShim(opts: ShimOptions) {
 	return startShimServer(
-		{ ...opts },
+		{ ...opts, publicPrefix: '/jira' },
 		{
 			productKey: 'jira',
 			serverName: 'jira-shim',
