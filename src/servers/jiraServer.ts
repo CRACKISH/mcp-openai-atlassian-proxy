@@ -1,6 +1,7 @@
 import { JsonObject, JsonValue } from '../types/json.js';
 import { FetchDelegate, SearchDelegate, ShimOptions } from '../types/shim.js';
 import { FetchedDocument, SearchResults } from '../types/tools.js';
+import { JIRA_DEFAULT_FETCH_DESCRIPTION, JIRA_DEFAULT_SEARCH_DESCRIPTION } from './descriptions.js';
 import { startShimServer } from './shimFactory.js';
 
 const JIRA_SEARCH_TOOL = 'jira_search';
@@ -142,10 +143,8 @@ export async function startJiraShim(opts: ShimOptions) {
 			serverName: 'jira-shim',
 			upstreamSearchTool: JIRA_SEARCH_TOOL,
 			upstreamFetchTool: JIRA_FETCH_TOOL,
-			defaultSearchDescription:
-				'Search Jira issues (limit 20). Input may be natural language (auto converted to JQL text ~ "..." ORDER BY updated DESC) or raw JQL (detected via JQL keywords). Returns up to 20 recent issues with id=issue key, title=summary, url=citation URL. Use before fetch to narrow scope.',
-			defaultFetchDescription:
-				'Fetch a Jira issue by key (id). Returns id, title, text (summary, description, status, top 5 comments) and url plus enriched metadata (source=jira, statusObject, commentsExcerpt, all other raw fields except those promoted). Use after search for detailed context or citation.',
+			defaultSearchDescription: JIRA_DEFAULT_SEARCH_DESCRIPTION,
+			defaultFetchDescription: JIRA_DEFAULT_FETCH_DESCRIPTION,
 			searchDelegate: jiraSearchDelegate,
 			fetchDelegate: jiraFetchDelegate,
 		},
