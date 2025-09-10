@@ -103,11 +103,11 @@ Example ChatGPT (conceptual JSON snippet):
 
 Returned payloads (content[0].text) are compact JSON strings:
 
-Search (jira): `{ "results": [{ "id": "RND-123", "title": "Summary", "url": "https://your.atlassian.net/browse/RND-123" }] }`
+Search (jira, limit 20): `{ "results": [{ "id": "RND-123", "title": "Summary", "url": "https://your.atlassian.net/browse/RND-123" }] }`
 
-Fetch (jira): `{ "id": "RND-123", "title": "Summary", "text": "Summary: ...", "url": "https://your.atlassian.net/browse/RND-123", "metadata": { "source": "jira" } }`
+Fetch (jira enriched): `{ "id": "RND-123", "title": "Summary", "text": "Summary: ...", "url": "https://your.atlassian.net/browse/RND-123", "metadata": { "source": "jira", "statusObject": {...}, "commentsExcerpt": [...], "<otherRawField>": ... } }`
 
-Confluence analogous, with page id and markdown body in `text`.
+Confluence analogous (search limit 20). Fetch returns markdown body in `text` plus enriched metadata: `{ source: "confluence", pageMeta: {...}, <otherRawField>: ... }`.
 
 Why not expose the whole upstream tool list? Smaller surface => lower token noise, simpler prompting and fewer accidental large calls.
 

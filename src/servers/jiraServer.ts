@@ -143,9 +143,9 @@ export async function startJiraShim(opts: ShimOptions) {
 			upstreamSearchTool: JIRA_SEARCH_TOOL,
 			upstreamFetchTool: JIRA_FETCH_TOOL,
 			defaultSearchDescription:
-				'Search Jira issues. Input may be a natural language phrase (converted to JQL text ~ "..." ORDER BY updated DESC) or raw JQL (detected if it contains JQL keywords like project,status,=,ORDER BY). Returns up to 10 most recently updated issues with id=issue key, title=summary, url=citation URL.',
+				'Search Jira issues (limit 20). Input may be natural language (auto converted to JQL text ~ "..." ORDER BY updated DESC) or raw JQL (detected via JQL keywords). Returns up to 20 recent issues with id=issue key, title=summary, url=citation URL. Use before fetch to narrow scope.',
 			defaultFetchDescription:
-				'Fetch a Jira issue by key (id). Returns id, title (summary), text (summary, description, status and up to 5 recent comments), url (issue URL) and metadata.source=jira. Use after search when deeper issue context is needed.',
+				'Fetch a Jira issue by key (id). Returns id, title, text (summary, description, status, top 5 comments) and url plus enriched metadata (source=jira, statusObject, commentsExcerpt, all other raw fields except those promoted). Use after search for detailed context or citation.',
 			searchDelegate: jiraSearchDelegate,
 			fetchDelegate: jiraFetchDelegate,
 		},

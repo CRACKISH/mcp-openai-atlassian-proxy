@@ -108,9 +108,9 @@ export async function startConfluenceShim(opts: ShimOptions) {
 			upstreamSearchTool: CONFLUENCE_SEARCH_TOOL,
 			upstreamFetchTool: CONFLUENCE_FETCH_TOOL,
 			defaultSearchDescription:
-				'Search Confluence pages by keyword phrase. Returns up to 10 pages with id=page id, title=page title, url=citation URL suitable for follow‑up fetch. Use concise topical queries (e.g. release notes Q2, architecture overview).',
+				'Search Confluence pages by keyword phrase (limit 20). Returns up to 20 pages with id=page id, title=page title, url=citation URL for follow‑up fetch. Use concise topical queries (e.g. release notes Q2, architecture overview).',
 			defaultFetchDescription:
-				'Fetch a Confluence page by id to get full page text (markdown if available) plus metadata.source=confluence. Use after search to retrieve detailed content for reasoning or citation.',
+				'Fetch a Confluence page by id. Returns id, title, text (markdown if available) and url plus enriched metadata (source=confluence, pageMeta, original raw fields except those promoted). Use after search for detailed context or citation.',
 			searchDelegate: confluenceSearchDelegate,
 			fetchDelegate: confluenceFetchDelegate,
 		},
