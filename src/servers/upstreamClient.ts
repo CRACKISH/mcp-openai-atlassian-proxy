@@ -2,6 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { log } from '../log.js';
+import { VERSION } from '../version.js';
 export interface UpstreamRetryOptions {
 	heartbeatMs?: number;
 	maxConsecutiveHeartbeatFailures?: number;
@@ -49,7 +50,7 @@ export class UpstreamClient {
 					shim: this.label,
 					attempt: this.attempt,
 				});
-				const client = new Client({ name: 'openai-shim-upstream', version: '0.4.1' });
+				const client = new Client({ name: 'openai-shim-upstream', version: VERSION });
 				try {
 					const t = new StreamableHTTPClientTransport(new URL(this.url));
 					await client.connect(t);
