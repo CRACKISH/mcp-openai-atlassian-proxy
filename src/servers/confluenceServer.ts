@@ -22,32 +22,43 @@ function normalizeConfluenceUrl(urlVal: JsonValue, fallbackAbsolute?: string): s
 	return raw;
 }
 
+const rec = (v: JsonValue): Record<string, JsonValue> =>
+	v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, JsonValue>) : {};
+
+interface ConfluenceLitePage {
+	id: string;
+	title: string;
+	url: string;
+}
+
+function toLitePage(v: JsonValue): ConfluenceLitePage | undefined {
+	const r = rec(v);
+	const id = (r['id'] ?? r['pageId'] ?? '') as string;
+	const title = (r['title'] ?? 'Untitled') as string;
+	const links = rec(r['_links']);
+	const rawUrl = (r['url'] ?? links['webui'] ?? '') as string;
+	const absolute = typeof r['url'] === 'string' ? (r['url'] as string) : undefined;
+	const url = normalizeConfluenceUrl(rawUrl, absolute);
+	return { id: String(id), title: String(title), url };
+}
+
 const confluenceSearchDelegate: SearchDelegate = {
 	prepareSearchArguments(query: string): JsonObject {
-		return { query, limit: 10 };
+		return { query, limit: 20 };
 	},
 	mapSearchResults(raw: JsonValue): SearchResults {
-		const itemsSrc = Array.isArray(raw)
-			? raw
-			: raw &&
-				  typeof raw === 'object' &&
-				  Array.isArray((raw as Record<string, unknown>)['results'])
-				? ((raw as Record<string, unknown>)['results'] as unknown[])
-				: [];
-		const list = itemsSrc.map(p => {
-			const rec = p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
-			const idVal = rec['id'] ?? rec['pageId'] ?? '';
-			const titleVal = rec['title'] ?? 'Untitled';
-			const links =
-				rec['_links'] && typeof rec['_links'] === 'object'
-					? (rec['_links'] as Record<string, unknown>)
-					: undefined;
-			const rawUrl = rec['url'] ?? links?.['webui'] ?? '';
-			const absolute = typeof rec['url'] === 'string' ? rec['url'] : undefined;
-			const urlVal = normalizeConfluenceUrl(rawUrl as JsonValue, absolute);
-			return { id: String(idVal), title: String(titleVal), url: urlVal };
-		});
-		return { results: list };
+		const base: JsonValue = raw;
+		let listSrc: JsonValue[] = [];
+		if (Array.isArray(base)) listSrc = base as JsonValue[];
+		else {
+			const container = rec(base);
+			const maybe = container['results'];
+			if (Array.isArray(maybe)) listSrc = maybe as JsonValue[];
+		}
+		const results = listSrc
+			.map(v => toLitePage(v))
+			.filter((p): p is ConfluenceLitePage => Boolean(p));
+		return { results };
 	},
 };
 
@@ -56,43 +67,35 @@ const confluenceFetchDelegate: FetchDelegate = {
 		return { page_id: id, include_metadata: true, convert_to_markdown: true };
 	},
 	mapFetchResults(raw: JsonValue): FetchedDocument {
-		const doc = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
-		const meta =
-			doc['metadata'] && typeof doc['metadata'] === 'object'
-				? (doc['metadata'] as Record<string, unknown>)
-				: doc['page'] && typeof doc['page'] === 'object'
-					? (doc['page'] as Record<string, unknown>)
-					: doc;
-		const idVal = meta['id'] ?? meta['pageId'] ?? 'unknown';
-		const titleVal = meta['title'] ?? 'Untitled';
-		const links =
-			meta['_links'] && typeof meta['_links'] === 'object'
-				? (meta['_links'] as Record<string, unknown>)
-				: undefined;
-		const rawUrl = meta['url'] ?? links?.['webui'] ?? '';
+		const doc = rec(raw);
+		const meta = Object.keys(rec(doc['metadata'])).length
+			? rec(doc['metadata'])
+			: Object.keys(rec(doc['page'])).length
+				? rec(doc['page'])
+				: doc;
+		const id = (meta['id'] ?? meta['pageId'] ?? 'unknown') as string;
+		const title = (meta['title'] ?? 'Untitled') as string;
+		const links = rec(meta['_links']);
+		const rawUrl = (meta['url'] ?? links['webui'] ?? '') as string;
 		const absolute = typeof meta['url'] === 'string' ? (meta['url'] as string) : undefined;
-		const urlVal = normalizeConfluenceUrl(rawUrl as JsonValue, absolute);
-		const contentObj =
-			doc['content'] && typeof doc['content'] === 'object'
-				? (doc['content'] as Record<string, unknown>)
-				: undefined;
-		const metaContent =
-			meta['content'] && typeof meta['content'] === 'object'
-				? (meta['content'] as Record<string, unknown>)
-				: undefined;
-		const textCandidate =
-			(contentObj?.['value'] && String(contentObj['value'])) ||
-			(metaContent?.['value'] && String(metaContent['value'])) ||
-			JSON.stringify(doc, null, 2);
-		const textVal = String(textCandidate);
+		const url = normalizeConfluenceUrl(rawUrl, absolute);
+		const contentObj = rec(doc['content']);
+		const metaContent = rec(meta['content']);
+		const textCandidate = (contentObj['value'] ||
+			metaContent['value'] ||
+			JSON.stringify(doc, null, 2)) as string;
+		const text = String(textCandidate);
+
+		// Metadata enrichment: copy remaining doc fields + refined meta subset
+		const exclude = new Set<string>(['id', 'pageId', 'title', 'url', '_links']);
 		const metadata: JsonObject = { source: 'confluence' };
-		return {
-			id: String(idVal),
-			title: String(titleVal),
-			text: textVal,
-			url: String(urlVal),
-			metadata,
-		};
+		for (const [k, v] of Object.entries(doc)) if (!exclude.has(k)) metadata[k] = v as JsonValue;
+		const metaCopy: Record<string, JsonValue> = {};
+		for (const [k, v] of Object.entries(meta))
+			if (!exclude.has(k)) metaCopy[k] = v as JsonValue;
+		if (Object.keys(metaCopy).length) metadata['pageMeta'] = metaCopy as unknown as JsonValue;
+
+		return { id: String(id), title: String(title), text, url: String(url), metadata };
 	},
 };
 
