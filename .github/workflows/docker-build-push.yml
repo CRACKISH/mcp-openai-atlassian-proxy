@@ -71,8 +71,6 @@ jobs:
                   tags: |
                       ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest
                       ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:v${{ steps.meta.outputs.version }}
-                      ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:sha-${{ steps.meta.outputs.short_sha }}
-                      ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.extraTag || steps.meta.outputs.short_sha }}
                   cache-from: type=gha
                   cache-to: type=gha,mode=max
 
