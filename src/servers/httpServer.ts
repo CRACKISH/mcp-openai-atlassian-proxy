@@ -1,7 +1,6 @@
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import cors from 'cors';
 import express, { Request, Response } from 'express';
-import cookieParser from 'cookie-parser';
 import { log } from '../log.js';
 import { ProductShimConfig, ShimOptions } from '../types/shim.js';
 import { getClientIp, startKeepAlive } from '../utils/net.js';
@@ -9,7 +8,6 @@ import { normalizePrefix, resolveDynamicPrefix } from '../utils/prefix.js';
 import { VERSION } from '../version.js';
 import { buildMcpServer } from './mcpServerFactory.js';
 import { createUpstreamClient, UpstreamCallable } from './upstreamClient.js';
-import { loadOAuth2Config, oauthLoginHandler, oauthCallbackHandler, oauthGuard } from './oauth2.js';
 
 export interface CreateHttpServerOptions {
 	opts: ShimOptions;
@@ -30,18 +28,9 @@ export function createHttpServer({
 	app.disable('x-powered-by');
 	app.set('trust proxy', true);
 	app.use(cors());
-	app.use(cookieParser());
 	app.use(express.json({ limit: '4mb' }));
 	app.use(express.urlencoded({ extended: false }));
 	app.get('/healthz', (_req, res) => res.status(200).json({ ok: true }));
-
-	const oauthCfg = loadOAuth2Config();
-	if (oauthCfg.enabled) {
-		app.get('/oauth/login', oauthLoginHandler(oauthCfg));
-		app.get('/oauth/callback', oauthCallbackHandler(oauthCfg));
-	}
-
-	app.use(oauthGuard(oauthCfg));
 
 	const sessions: Record<string, SSEServerTransport> = {};
 	let idleTimer: NodeJS.Timeout | null = null;
