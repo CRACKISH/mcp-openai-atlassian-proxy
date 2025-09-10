@@ -52,10 +52,22 @@ npm start   # :7100 jira shim, :7200 confluence shim
 
 Optional:
 
-| Var                    | Default | Description          |
-| ---------------------- | ------- | -------------------- |
-| `JIRA_SHIM_PORT`       | 7100    | Jira shim port       |
-| `CONFLUENCE_SHIM_PORT` | 7200    | Confluence shim port |
+| Var                    | Default | Description                                    |
+| ---------------------- | ------- | ---------------------------------------------- |
+| `JIRA_SHIM_PORT`       | 7100    | Jira shim port                                 |
+| `CONFLUENCE_SHIM_PORT` | 7200    | Confluence shim port                           |
+| `OAUTH2_ENABLED`       | false   | Set 1 to enable OAuth2 guard                   |
+| `OAUTH2_CLIENT_ID`     |         | Atlassian OAuth client id                      |
+| `OAUTH2_CLIENT_SECRET` |         | Atlassian OAuth client secret                  |
+| `OAUTH2_REDIRECT_URI`  | http://localhost:7100/oauth/callback | Redirect URI      |
+| `OAUTH2_SCOPE`         | read:jira-work read:confluence-space.summary | Space-separated scopes |
+| `OAUTH2_AUTHORIZE_URL` | https://auth.atlassian.com/authorize | Auth endpoint     |
+| `OAUTH2_TOKEN_URL`     | https://auth.atlassian.com/oauth/token | Token endpoint  |
+| `OAUTH2_AUDIENCE`      | api.atlassian.com | Audience (optional)                  |
+### OAuth2 Flow (Atlassian 3LO)
+
+If enabled, visit `/oauth/login` on the shim server (e.g. `http://localhost:7100/oauth/login`). Complete Atlassian consent; callback sets an `sid` cookie. Subsequent `/sse` and tool calls require that cookie; otherwise `401 auth_required`. Tokens are held in-memory only; restart invalidates sessions.
+
 
 Example `.env`:
 
