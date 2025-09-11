@@ -21,10 +21,8 @@ export function resolveDynamicPrefix(
 		.trim();
 	if (xfwd) return { prefix: xfwd.replace(/\/+$/, ''), reason: 'x-forwarded' };
 	const original = (req.originalUrl || '').split('?')[0];
-	if (/\/sse$/i.test(original) && original.length > 4) {
-		const maybe = original.slice(0, -4).replace(/\/+$/, '');
-		if (maybe && maybe !== '/s') return { prefix: maybe, reason: 'derived' };
-	}
+	if (original && original !== '/')
+		return { prefix: original.replace(/\/+$/, ''), reason: 'original' };
 	return { prefix: '', reason: 'empty' };
 }
 

@@ -10,12 +10,11 @@ interface LaunchConfig {
 }
 
 function readConfig(): LaunchConfig {
-	let upstreamUrl = process.env.UPSTREAM_MCP_URL || '';
+	const upstreamUrl = process.env.UPSTREAM_MCP_URL || '';
 	if (!upstreamUrl) {
-		console.error('UPSTREAM_MCP_URL env var required (e.g. https://host:7000/sse)');
+		console.error('UPSTREAM_MCP_URL env var required (e.g. https://host:7000/mcp or /sse)');
 		process.exit(1);
 	}
-	if (!/\/sse\/?$/.test(upstreamUrl)) upstreamUrl = upstreamUrl.replace(/\/+$/, '') + '/sse';
 	return {
 		upstreamUrl,
 		jiraPort: Number(process.env.JIRA_SHIM_PORT || 7100),
