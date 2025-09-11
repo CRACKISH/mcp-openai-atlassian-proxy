@@ -3,6 +3,13 @@ import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { log } from '../log.js';
 import { VERSION } from '../version.js';
+
+interface TransportType {
+	constructor: { name: string };
+	close?: () => Promise<void> | void;
+	onclose?: (() => void) | null;
+	onerror?: ((err: Error) => void) | null;
+}
 export interface UpstreamRetryOptions {
 	heartbeatMs?: number;
 	maxConsecutiveHeartbeatFailures?: number;
@@ -44,51 +51,82 @@ export class UpstreamClient {
 		if (this.client) return this.client;
 		while (!this.closed) {
 			try {
-				log({
-					evt: 'upstream_connect_attempt',
-					msg: 'attempt',
-					shim: this.label,
-					attempt: this.attempt,
-				});
+				this.logConnectAttempt();
 				const client = new Client({ name: 'openai-shim-upstream', version: VERSION });
-				try {
-					const t = new StreamableHTTPClientTransport(new URL(this.url));
-					await client.connect(t);
-					this.transport = t;
-				} catch {
-					const t = new SSEClientTransport(new URL(this.url));
-					await client.connect(t);
-					this.transport = t;
-				}
-
-				if (this.transport) {
-					this.transport.onclose = () => this.scheduleReconnect(true);
-					this.transport.onerror = () => this.scheduleReconnect(true);
-				}
-
+				const transport = await this.createTransportAndConnect(client);
+				this.setupTransportEvents(transport);
 				this.client = client;
 				this.startHeartbeat();
 				this.attempt = 0;
-				log({
-					evt: 'upstream_connected',
-					msg: 'connected',
-					shim: this.label,
-					transport: this.transport?.constructor?.name,
-				});
+				this.logConnected(transport);
 				return client;
 			} catch {
 				const delay = this.backoff();
-				log({
-					evt: 'upstream_backoff',
-					msg: 'backoff',
-					shim: this.label,
-					delayMs: delay,
-					attempt: this.attempt,
-				});
+				this.logBackoff(delay);
 				await this.sleep(delay);
 			}
 		}
 		throw new Error('UpstreamClient closed');
+	}
+
+	private async createTransportAndConnect(client: Client) {
+		const urlStr = this.url.toString();
+		if (urlStr.endsWith('/mcp') || urlStr.endsWith('.mcp')) {
+			const transport = new StreamableHTTPClientTransport(new URL(this.url));
+			await client.connect(transport);
+			return transport;
+		} else if (urlStr.endsWith('/sse') || urlStr.endsWith('.sse')) {
+			const transport = new SSEClientTransport(new URL(this.url));
+			await client.connect(transport);
+			return transport;
+		} else {
+			try {
+				const transport = new StreamableHTTPClientTransport(new URL(this.url));
+				await client.connect(transport);
+				return transport;
+			} catch {
+				const transport = new SSEClientTransport(new URL(this.url));
+				await client.connect(transport);
+				return transport;
+			}
+		}
+	}
+
+	private setupTransportEvents(transport: TransportType) {
+		this.transport = transport;
+		if (this.transport) {
+			this.transport.onclose = () => this.scheduleReconnect(true);
+			this.transport.onerror = () => this.scheduleReconnect(true);
+		}
+	}
+
+	private logConnectAttempt() {
+		log({
+			evt: 'upstream_connect_attempt',
+			msg: 'attempt',
+			shim: this.label,
+			attempt: this.attempt,
+		});
+	}
+
+	private logConnected(transport: TransportType) {
+		const name = transport?.constructor?.name;
+		log({
+			evt: 'upstream_connected',
+			msg: 'connected',
+			shim: this.label,
+			transport: name,
+		});
+	}
+
+	private logBackoff(delay: number) {
+		log({
+			evt: 'upstream_backoff',
+			msg: 'backoff',
+			shim: this.label,
+			delayMs: delay,
+			attempt: this.attempt,
+		});
 	}
 
 	private reconnecting = false;

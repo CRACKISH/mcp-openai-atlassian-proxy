@@ -39,10 +39,17 @@ Keep a deliberately tiny stable contract for AI agents (exactly two tools per pr
 ```bash
 npm install
 cp .env.example .env
+
 # edit .env (UPSTREAM_MCP_URL=https://your-upstream-host:7000/sse)
 npm run build
 npm start   # :7100 jira shim, :7200 confluence shim
 ```
+
+**Protocol is selected automatically:**
+
+- If `UPSTREAM_MCP_URL` ends with `/mcp` or `.mcp` — streamable HTTP (MCP native) is used.
+- If it ends with `/sse` or `.sse` — SSE is used.
+- If not specified — the shim will try both options in order.
 
 ### Required Env
 
@@ -70,10 +77,13 @@ CONFLUENCE_SHIM_PORT=7200
 ## Behavior
 
 1. Client connects: `GET /sse` on the relevant port.
-2. Shim creates (or reuses shared upstream MCP client) and local MCP server emits its own endpoint for `/messages`.
-3. Only `search` and `fetch` are listed; no dynamic filtering of upstream tool lists.
-4. Tool invocation -> delegate builds upstream arguments -> upstream call -> delegate maps result -> compact JSON returned.
-5. SSE only (streamable HTTP left out to stay lean).
+2. Shim creates (or reuses) the upstream MCP client and local MCP server.
+3. The proxy automatically determines the protocol for connecting to upstream:
+    - `/mcp` or `.mcp` — streamable HTTP
+    - `/sse` or `.sse` — SSE
+    - fallback: tries both options
+4. Only `search` and `fetch` are listed; no dynamic filtering of upstream tool lists.
+5. Tool invocation -> delegate builds upstream arguments -> upstream call -> delegate maps result -> compact JSON returned.
 
 ---
 
