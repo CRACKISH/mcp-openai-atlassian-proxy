@@ -14,6 +14,18 @@ function toCanonicalIssueUrl(issueKey: string, rawUrl: string): string {
 	return rawUrl.replace(/^(https?:\/\/[^/]+)\/rest\/api\/\d+\/issue\/\d+.*$/i, `$1${browse}`);
 }
 
+function getJiraIssueTitle(issue: JiraIssueLite): string {
+	if (issue.key && issue.summary) {
+		return `${issue.key} ${issue.summary}`;
+	} else if (issue.summary) {
+		return String(issue.summary);
+	} else if (issue.key) {
+		return String(issue.key);
+	} else {
+		return `Issue ${issue.id || 'N/A'}`;
+	}
+}
+
 function looksLikeJql(q: string): boolean {
 	const s = String(q || '').toLowerCase();
 	return /[=]|order by|project|status|assignee|labels|issue|parent|updated|created/.test(s);
@@ -63,7 +75,7 @@ const jiraSearchDelegate: SearchDelegate = {
 				const urlVal = toCanonicalIssueUrl(i.key, i.rawUrl || '');
 				return {
 					id: i.id,
-					title: i.summary ? String(i.summary) : `Issue ${i.id || 'N/A'}`,
+					title: getJiraIssueTitle(i),
 					url: String(urlVal),
 				};
 			});
