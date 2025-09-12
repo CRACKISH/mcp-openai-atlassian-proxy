@@ -34,7 +34,7 @@ export function createHttpServer({
 
 	const sessions: Record<string, SSEServerTransport> = {};
 	let idleTimer: NodeJS.Timeout | null = null;
-	const idleMs = Number(process.env.UPSTREAM_IDLE_MS || 120_000);
+	const idleMs = Number(120_000);
 
 	function cancelIdleTimer() {
 		if (idleTimer) {
@@ -98,7 +98,7 @@ export function createHttpServer({
 		if (upstreamClient) return upstreamClient;
 		if (upstreamPromise) return upstreamPromise;
 		upstreamPromise = (async () => {
-			const u = await createUpstreamClient(upstreamUrl, { label: cfg.productKey });
+			const u = await createUpstreamClient(upstreamUrl, { label: cfg.productKey }); // just to ensure upstream is alive, not used directly here
 			upstreamClient = u;
 			return u;
 		})();
@@ -119,19 +119,63 @@ export function createHttpServer({
 		}
 	}
 
-	app.get('/sse', async (req: Request, res: Response) => {
+	async function handleSSE(req: Request, res: Response) {
 		const { transport, ip } = openSession(req, res);
 		const keepAlive = attachKeepAlive(res);
 		res.on('close', () => onSessionClose(transport.sessionId, ip, keepAlive));
 		const upstream = await ensureUpstream();
 		const server = buildMcpServer({ cfg, upstream });
 		await server.connect(transport);
-	});
+	}
+
+	async function handleStreamableHTTP(req: Request, res: Response) {
+		await ensureUpstream();
+		if (req.method === 'GET') {
+			res.status(200).json({ ok: true, transport: 'http', version: VERSION });
+			return;
+		}
+		const http = await import('http');
+		const https = await import('https');
+		const url = new URL(upstreamUrl);
+		const mod = url.protocol === 'https:' ? https : http;
+		const proxyReq = mod.request(
+			{
+				method: req.method,
+				hostname: url.hostname,
+				port: url.port,
+				path: url.pathname,
+				headers: req.headers,
+			},
+			proxyRes => {
+				res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
+				proxyRes.pipe(res);
+			},
+		);
+		proxyReq.on('error', err => {
+			res.status(502).json({ error: 'Upstream error', detail: err.message });
+		});
+		req.pipe(proxyReq);
+	}
 
 	const resolveSession = (req: Request) => {
 		const sid = req.query.sessionId ?? req.query.session_id ?? req.query['session-id'] ?? '';
 		return String(sid || '');
 	};
+
+	app.all(['/mcp', '/sse'], async (req: Request, res: Response) => {
+		const accept = req.headers.accept || '';
+		const transportType = (req.query.transport || '').toString().toLowerCase();
+		const isSse =
+			req.path.endsWith('/sse') ||
+			transportType === 'sse' ||
+			(req.method === 'GET' && accept.includes('text/event-stream'));
+		if (isSse) {
+			res.setHeader('Content-Type', 'text/event-stream');
+			await handleSSE(req, res);
+		} else {
+			await handleStreamableHTTP(req, res);
+		}
+	});
 
 	app.post('/messages', async (req: Request, res: Response) => {
 		const sid = resolveSession(req);
@@ -162,14 +206,20 @@ export function createHttpServer({
 			version: VERSION,
 		} as const;
 		log(listenLog);
-		const sseLog = {
+		log({
+			evt: 'shim_http',
+			msg: 'http_ready',
+			shim: cfg.productKey,
+			url: `http://localhost:${opts.port}/mcp`,
+			version: VERSION,
+		});
+		log({
 			evt: 'shim_sse',
 			msg: 'sse_ready',
 			shim: cfg.productKey,
 			url: `http://localhost:${opts.port}/sse`,
 			version: VERSION,
-		} as const;
-		log(sseLog);
+		});
 	});
 
 	return { app, server, sessions, closeUpstream };

@@ -17,7 +17,24 @@ Each product launches its own MCP server (using `@modelcontextprotocol/sdk`):
 
 The shim registers only those two tools; it does not forward or re‑label arbitrary upstream tools, keeping the surface area predictable for agents.
 
-### How It Works (0.4.1)
+### How It Works (0.5.0)
+
+**Now supports both streamable HTTP (default, /mcp) and SSE (legacy, /sse) for MCP protocol.**
+
+**Default:**
+
+- `/mcp` — streamable HTTP (recommended for new clients, lower latency, no session required)
+- `/sse` — SSE (legacy, session-based, for compatibility)
+
+**Switching:**
+
+- Use `?transport=sse` to force SSE mode on `/mcp` endpoint
+- Use `?transport=http` to force HTTP mode on `/sse` endpoint (not recommended)
+
+**Summary:**
+
+- By default, `/mcp` is preferred and works with any MCP-native client (Claude, OpenAI, etc)
+- `/sse` is kept for legacy compatibility
 
 1. Local MCP server (per product) registers `search` and `fetch`.
 2. When called, it constructs arguments via small delegate mappers and invokes the upstream tool via an MCP client over SSE.
@@ -45,11 +62,23 @@ npm run build
 npm start   # :7100 jira shim, :7200 confluence shim
 ```
 
-**Protocol is selected automatically:**
+**Protocol is selected automatically for upstream:**
 
-- If `UPSTREAM_MCP_URL` ends with `/mcp` or `.mcp` — streamable HTTP (MCP native) is used.
-- If it ends with `/sse` or `.sse` — SSE is used.
+- If `UPSTREAM_MCP_URL` ends with `/mcp` or `.mcp` — streamable HTTP (MCP native) is used for upstream.
+- If it ends with `/sse` or `.sse` — SSE is used for upstream.
 - If not specified — the shim will try both options in order.
+
+**Local endpoints:**
+
+- `http://localhost:7100/mcp` (Jira, streamable HTTP)
+- `http://localhost:7100/sse` (Jira, SSE)
+- `http://localhost:7200/mcp` (Confluence, streamable HTTP)
+- `http://localhost:7200/sse` (Confluence, SSE)
+
+**Switching protocol:**
+
+- `http://localhost:7100/mcp?transport=sse` — force SSE
+- `http://localhost:7100/sse?transport=http` — force HTTP (not recommended)
 
 ### Required Env
 
@@ -76,11 +105,11 @@ CONFLUENCE_SHIM_PORT=7200
 
 ## Behavior
 
-1. Client connects: `GET /sse` on the relevant port.
+1. Client connects: `POST /mcp` (recommended, streamable HTTP) or `GET /sse` (legacy) on the relevant port.
 2. Shim creates (or reuses) the upstream MCP client and local MCP server.
 3. The proxy automatically determines the protocol for connecting to upstream:
-    - `/mcp` or `.mcp` — streamable HTTP
-    - `/sse` or `.sse` — SSE
+    - `/mcp` or `.mcp` — streamable HTTP (upstream)
+    - `/sse` or `.sse` — SSE (upstream)
     - fallback: tries both options
 4. Only `search` and `fetch` are listed; no dynamic filtering of upstream tool lists.
 5. Tool invocation -> delegate builds upstream arguments -> upstream call -> delegate maps result -> compact JSON returned.
@@ -94,8 +123,9 @@ If you want ChatGPT (or any MCP compatible client) to use Jira / Confluence cont
 1. Run the upstream Atlassian MCP (e.g. `sooperset/mcp-atlassian`). Note its SSE endpoint (e.g. `https://upstream-host:7000/sse`).
 2. Configure this proxy `.env` with `UPSTREAM_MCP_URL` pointing to that SSE endpoint.
 3. Start the proxy (this repo). It will expose two MCP servers locally:
-    - Jira: default `http://localhost:7100/sse`
-    - Confluence: default `http://localhost:7200/sse`
+    - Jira: default `http://localhost:7100/mcp` (recommended)
+    - Confluence: default `http://localhost:7200/mcp` (recommended)
+    - SSE endpoints (`/sse`) are also available for legacy clients
 4. In ChatGPT MCP configuration (Custom tool / self-hosted MCP) register endpoints you need. Each exposes exactly two tools:
     - `search`
     - `fetch`
@@ -105,8 +135,8 @@ Example ChatGPT (conceptual JSON snippet):
 ```jsonc
 {
 	"mcpServers": {
-		"jira": { "url": "http://localhost:7100/sse" },
-		"confluence": { "url": "http://localhost:7200/sse" },
+		"jira": { "url": "http://localhost:7100/mcp" },
+		"confluence": { "url": "http://localhost:7200/mcp" },
 	},
 }
 ```
