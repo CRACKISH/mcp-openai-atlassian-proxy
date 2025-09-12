@@ -55,7 +55,7 @@ Keep a deliberately tiny stable contract for AI agents (exactly two tools per pr
 
 ```bash
 npm install
-cp .env.example .env
+cp .env .env
 
 # edit .env (UPSTREAM_MCP_URL=https://your-upstream-host:7000/sse)
 npm run build
@@ -161,6 +161,10 @@ Why not expose the whole upstream tool list? Smaller surface => lower token nois
 | Session limiting flags                   | Simplified (one upstream per client session) |
 
 ---
+
+## Example nginx Configuration
+
+An anonymized example nginx config is provided in `examples/nginx.conf`. Use this as a template for your own deployments. See the `examples/README.md` for more details.
 
 ## Docker
 

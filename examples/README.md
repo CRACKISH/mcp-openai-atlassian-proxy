@@ -10,7 +10,7 @@ This folder contains a sample deployment stack (Docker + nginx) showing how to r
 ## Files
 
 - `docker-compose.yml` – sample stack (uses environment variables for secrets)
-- `nginx.conf` – reference nginx configuration with prefix preservation
+- `nginx.conf` – anonymized example nginx configuration with prefix preservation (use as a template)
 
 ## Dynamic Prefix Notes
 
@@ -61,7 +61,7 @@ Never commit real tokens.
 
 ## Adjusting Domain
 
-Replace `your-domain.example` in `nginx.conf` and certbot command with your real domain before deploying.
+Replace `example.com` in `nginx.conf` and certbot command with your real domain before deploying.
 
 ## TLS
 
