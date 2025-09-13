@@ -173,6 +173,25 @@ docker build -t mcp-atlassian-proxy:0.4.1 .
 docker run --rm -e UPSTREAM_MCP_URL="https://your-upstream:7000/sse" -p 7100:7100 -p 7200:7200 mcp-atlassian-proxy:0.4.1
 ```
 
+### Docker Hub
+
+Prebuilt images are published under `crackish/mcp-openai-atlassian-proxy`:
+
+- Repository: https://hub.docker.com/repositories/crackish
+- Image: `crackish/mcp-openai-atlassian-proxy`
+
+Common tags:
+
+- `latest` – tracks main branch
+- `vX.Y.Z` – versioned releases
+
+Example:
+
+```bash
+docker pull crackish/mcp-openai-atlassian-proxy:latest
+docker run --rm -e UPSTREAM_MCP_URL="https://your-upstream:7000/sse" -p 7100:7100 -p 7200:7200 crackish/mcp-openai-atlassian-proxy:latest
+```
+
 ---
 
 ## Development
